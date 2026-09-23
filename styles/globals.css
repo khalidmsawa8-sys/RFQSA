@@ -1,0 +1,17 @@
+@import "tailwindcss";
+
+/*
+ * This duplicate stylesheet is intentionally inert.
+ *
+ * The single source of truth for global styles is `app/globals.css`,
+ * which is imported once via `app/layout.tsx`. Nothing imports this
+ * file, but Vercel's deploy validator scans every `.css` file in the
+ * project and requires the `@import "tailwindcss"` directive at the
+ * top — hence the import above.
+ *
+ * Do NOT add design tokens, `:root` blocks, `@theme` rules, or any
+ * other styles here. Edit `app/globals.css` instead. Keeping a second
+ * `:root { ... }` block here previously caused the in-browser CSS
+ * compiler to surface a "Missing closing } at :root" parse error as
+ * an unhandled promise rejection in the preview.
+ */

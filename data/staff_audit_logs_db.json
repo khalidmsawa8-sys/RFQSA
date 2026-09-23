@@ -1,0 +1,156 @@
+[
+  {
+    "id": "audit-101",
+    "actor_id": "client-demo-id",
+    "performed_by": "client-demo-id",
+    "actor_name": "شركة المشتريات الوطنية",
+    "actor_role": "client",
+    "actor_ref_code": "CLI-101",
+    "action": "ORDER_CREATED",
+    "entity_type": "order",
+    "table_name": "orders",
+    "entity_id": "ORD-5501",
+    "record_id": "ORD-5501",
+    "details": "إنشاء طلب شراء جديد #ORD-5501 لقطع فورد توروس 2023 بقيمة 2,850 ر.س",
+    "description": "إنشاء طلب شراء جديد #ORD-5501 لقطع فورد توروس 2023 بقيمة 2,850 ر.س",
+    "created_at": "2026-08-20T02:00:00.000Z",
+    "timestamp": "2026-08-20T02:00:00.000Z",
+    "actor": {
+      "full_name": "شركة المشتريات الوطنية",
+      "ref_code": "CLI-101",
+      "role": "client"
+    }
+  },
+  {
+    "id": "audit-102",
+    "actor_id": "vendor-demo-id",
+    "performed_by": "vendor-demo-id",
+    "actor_name": "مؤسسة قطع الغيار المعتمدة",
+    "actor_role": "vendor",
+    "actor_ref_code": "VND-501",
+    "action": "QUOTE_SUBMITTED",
+    "entity_type": "quote",
+    "table_name": "quotes",
+    "entity_id": "Q-8412-1",
+    "record_id": "Q-8412-1",
+    "details": "تقديم عرض سعر بمبلغ 2,850 ر.س للطلب #RFQ-8412 مع ضمان 6 أشهر",
+    "description": "تقديم عرض سعر بمبلغ 2,850 ر.س للطلب #RFQ-8412 مع ضمان 6 أشهر",
+    "created_at": "2026-08-20T02:15:00.000Z",
+    "timestamp": "2026-08-20T02:15:00.000Z",
+    "actor": {
+      "full_name": "مؤسسة قطع الغيار المعتمدة",
+      "ref_code": "VND-501",
+      "role": "vendor"
+    }
+  },
+  {
+    "id": "audit-103",
+    "actor_id": "client-demo-id",
+    "performed_by": "client-demo-id",
+    "actor_name": "شركة المشتريات الوطنية",
+    "actor_role": "client",
+    "actor_ref_code": "CLI-101",
+    "action": "QUOTE_ACCEPTED",
+    "entity_type": "quote",
+    "table_name": "quotes",
+    "entity_id": "Q-8412-1",
+    "record_id": "Q-8412-1",
+    "details": "قبول عرض السعر وتأكيد الدفع للطلب #ORD-5501",
+    "description": "قبول عرض السعر وتأكيد الدفع للطلب #ORD-5501",
+    "created_at": "2026-08-20T03:00:00.000Z",
+    "timestamp": "2026-08-20T03:00:00.000Z",
+    "actor": {
+      "full_name": "شركة المشتريات الوطنية",
+      "ref_code": "CLI-101",
+      "role": "client"
+    }
+  },
+  {
+    "id": "audit-104",
+    "actor_id": "system",
+    "performed_by": "system",
+    "actor_name": "نظام الفوترة المركزي ZATCA",
+    "actor_role": "system",
+    "actor_ref_code": "SYS-01",
+    "action": "INVOICE_ISSUED",
+    "entity_type": "invoice",
+    "table_name": "invoices",
+    "entity_id": "INV-5501",
+    "record_id": "INV-5501",
+    "details": "إصدار فاتورة ضريبية رسمية برقم INV-2026-005501 بإجمالي 2,850 ر.س",
+    "description": "إصدار فاتورة ضريبية رسمية برقم INV-2026-005501 بإجمالي 2,850 ر.س",
+    "created_at": "2026-08-20T03:05:00.000Z",
+    "timestamp": "2026-08-20T03:05:00.000Z",
+    "actor": {
+      "full_name": "نظام الفوترة المركزي ZATCA",
+      "ref_code": "SYS-01",
+      "role": "system"
+    }
+  },
+  {
+    "id": "audit-105",
+    "actor_id": "client-demo-id",
+    "performed_by": "client-demo-id",
+    "actor_name": "شركة المشتريات الوطنية",
+    "actor_role": "client",
+    "actor_ref_code": "CLI-101",
+    "action": "WALLET_DEBIT",
+    "entity_type": "wallet",
+    "table_name": "wallet_transactions",
+    "entity_id": "TXN-5501",
+    "record_id": "TXN-5501",
+    "details": "خصم قيمة المشتريات 2,850 ر.س من المحفظة لسداد الفاتورة INV-2026-005501",
+    "description": "خصم قيمة المشتريات 2,850 ر.س من المحفظة لسداد الفاتورة INV-2026-005501",
+    "created_at": "2026-08-20T03:15:00.000Z",
+    "timestamp": "2026-08-20T03:15:00.000Z",
+    "actor": {
+      "full_name": "شركة المشتريات الوطنية",
+      "ref_code": "CLI-101",
+      "role": "client"
+    }
+  },
+  {
+    "id": "audit-106",
+    "actor_id": "vendor-demo-id",
+    "performed_by": "vendor-demo-id",
+    "actor_name": "مؤسسة قطع الغيار المعتمدة",
+    "actor_role": "vendor",
+    "actor_ref_code": "VND-501",
+    "action": "ORDER_STATUS_UPDATED",
+    "entity_type": "order",
+    "table_name": "orders",
+    "entity_id": "ORD-5501",
+    "record_id": "ORD-5501",
+    "details": "تحديث حالة الطلب #ORD-5501 من قيد الانتظار إلى جاري التجهيز",
+    "description": "تحديث حالة الطلب #ORD-5501 من قيد الانتظار إلى جاري التجهيز",
+    "created_at": "2026-08-20T04:00:00.000Z",
+    "timestamp": "2026-08-20T04:00:00.000Z",
+    "actor": {
+      "full_name": "مؤسسة قطع الغيار المعتمدة",
+      "ref_code": "VND-501",
+      "role": "vendor"
+    }
+  },
+  {
+    "id": "audit-107",
+    "actor_id": "admin-demo-id",
+    "performed_by": "admin-demo-id",
+    "actor_name": "المدير العام (Super Admin)",
+    "actor_role": "admin",
+    "actor_ref_code": "ADM-001",
+    "action": "USER_VERIFICATION_APPROVED",
+    "entity_type": "user",
+    "table_name": "profiles",
+    "entity_id": "vendor-demo-id",
+    "record_id": "vendor-demo-id",
+    "details": "اعتماد وتوثيق السجل التجاري والشهادة الضريبية لمؤسسة قطع الغيار المعتمدة",
+    "description": "اعتماد وتوثيق السجل التجاري والشهادة الضريبية لمؤسسة قطع الغيار المعتمدة",
+    "created_at": "2026-08-19T09:00:00.000Z",
+    "timestamp": "2026-08-19T09:00:00.000Z",
+    "actor": {
+      "full_name": "المدير العام (Super Admin)",
+      "ref_code": "ADM-001",
+      "role": "admin"
+    }
+  }
+]

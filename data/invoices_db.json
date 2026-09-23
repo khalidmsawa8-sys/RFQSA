@@ -1,0 +1,275 @@
+[
+  {
+    "id": "INV-5501",
+    "invoice_number": "INV-2026-005501",
+    "order_id": "ORD-5501",
+    "status": "paid",
+    "type": "tax_invoice",
+    "total_amount": 2850,
+    "subtotal": 2478.26,
+    "tax_amount": 371.74,
+    "issued_at": "2026-08-20T03:00:00.000Z",
+    "due_date": "2026-09-03T03:00:00.000Z",
+    "paid_at": "2026-08-20T03:15:00.000Z",
+    "client_id": "client-demo-id",
+    "vendor_id": "vendor-demo-id",
+    "client": {
+      "id": "client-demo-id",
+      "full_name": "شركة المشتريات الوطنية",
+      "company_name": "شركة المشتريات الوطنية",
+      "ref_code": "CLI-101",
+      "tax_number": "310123456700003",
+      "commercial_register": "1010892341",
+      "national_address": "الرياض - طريق الملك فهد - حي العليا",
+      "phone": "0501234567"
+    },
+    "vendor": {
+      "id": "vendor-demo-id",
+      "full_name": "مؤسسة قطع الغيار المعتمدة",
+      "company_name": "مؤسسة قطع الغيار المعتمدة",
+      "ref_code": "VND-501",
+      "tax_number": "300123456700003",
+      "commercial_register": "1010987654",
+      "national_address": "الرياض - طريق خريص - حي المنار",
+      "phone": "0551122334"
+    },
+    "deal": {
+      "order_id": "ORD-5501",
+      "orders": {
+        "id": "ORD-5501",
+        "rfq": {
+          "car_make": "فورد",
+          "car_model": "توروس",
+          "car_year": 2023,
+          "plate_number": "ص ض ط 3344",
+          "vin": "1FA6P8CF9H5102938"
+        }
+      }
+    },
+    "order": {
+      "id": "ORD-5501",
+      "car_make": "فورد",
+      "car_model": "توروس",
+      "car_year": 2023,
+      "plate_number": "ص ض ط 3344",
+      "vin": "1FA6P8CF9H5102938"
+    },
+    "items": [
+      {
+        "part_name": "صدام أمامي أصلي",
+        "part_number": "DG9Z-17757-AA",
+        "quantity": 1,
+        "unit_price": 1350,
+        "line_total": 1350
+      },
+      {
+        "part_name": "شمعة أمامية يمين Full LED",
+        "part_number": "DG9Z-13008-F",
+        "quantity": 1,
+        "unit_price": 1128.26,
+        "line_total": 1128.26
+      }
+    ]
+  },
+  {
+    "id": "INV-4920",
+    "invoice_number": "INV-2026-004920",
+    "order_id": "ORD-4920",
+    "status": "paid",
+    "type": "tax_invoice",
+    "total_amount": 3400,
+    "subtotal": 2956.52,
+    "tax_amount": 443.48,
+    "issued_at": "2026-08-19T15:00:00.000Z",
+    "due_date": "2026-09-02T15:00:00.000Z",
+    "paid_at": "2026-08-19T15:10:00.000Z",
+    "client_id": "client-demo-id",
+    "vendor_id": "vendor-demo-id",
+    "client": {
+      "id": "client-demo-id",
+      "full_name": "شركة المشتريات الوطنية",
+      "company_name": "شركة المشتريات الوطنية",
+      "ref_code": "CLI-101",
+      "tax_number": "310123456700003",
+      "commercial_register": "1010892341",
+      "national_address": "الرياض - طريق الملك فهد - حي العليا",
+      "phone": "0501234567"
+    },
+    "vendor": {
+      "id": "vendor-demo-id",
+      "full_name": "مؤسسة قطع الغيار المعتمدة",
+      "company_name": "مؤسسة قطع الغيار المعتمدة",
+      "ref_code": "VND-501",
+      "tax_number": "300123456700003",
+      "commercial_register": "1010987654",
+      "national_address": "الرياض - طريق خريص - حي المنار",
+      "phone": "0551122334"
+    },
+    "deal": {
+      "order_id": "ORD-4920",
+      "orders": {
+        "id": "ORD-4920",
+        "rfq": {
+          "car_make": "تويوتا",
+          "car_model": "لاندكروزر",
+          "car_year": 2022,
+          "plate_number": "ع غ ف 7788",
+          "vin": "JTMHT05J3D4091223"
+        }
+      }
+    },
+    "order": {
+      "id": "ORD-4920",
+      "car_make": "تويوتا",
+      "car_model": "لاندكروزر",
+      "car_year": 2022,
+      "plate_number": "ع غ ف 7788",
+      "vin": "JTMHT05J3D4091223"
+    },
+    "items": [
+      {
+        "part_name": "مساعدات هيدروليك أمامية وخلفية",
+        "part_number": "48510-69435",
+        "quantity": 4,
+        "unit_price": 739.13,
+        "line_total": 2956.52
+      }
+    ]
+  },
+  {
+    "id": "INV-3105",
+    "invoice_number": "INV-2026-003105",
+    "order_id": "ORD-3105",
+    "status": "paid",
+    "type": "tax_invoice",
+    "total_amount": 1650,
+    "subtotal": 1434.78,
+    "tax_amount": 215.22,
+    "issued_at": "2026-08-18T16:30:00.000Z",
+    "due_date": "2026-09-01T16:30:00.000Z",
+    "paid_at": "2026-08-18T16:40:00.000Z",
+    "client_id": "client-demo-id",
+    "vendor_id": "vendor-demo-id",
+    "client": {
+      "id": "client-demo-id",
+      "full_name": "شركة المشتريات الوطنية",
+      "company_name": "شركة المشتريات الوطنية",
+      "ref_code": "CLI-101",
+      "tax_number": "310123456700003",
+      "commercial_register": "1010892341",
+      "national_address": "الرياض - طريق الملك فهد - حي العليا",
+      "phone": "0501234567"
+    },
+    "vendor": {
+      "id": "vendor-demo-id",
+      "full_name": "مؤسسة قطع الغيار المعتمدة",
+      "company_name": "مؤسسة قطع الغيار المعتمدة",
+      "ref_code": "VND-501",
+      "tax_number": "300123456700003",
+      "commercial_register": "1010987654",
+      "national_address": "الرياض - طريق خريص - حي المنار",
+      "phone": "0551122334"
+    },
+    "deal": {
+      "order_id": "ORD-3105",
+      "orders": {
+        "id": "ORD-3105",
+        "rfq": {
+          "car_make": "هوندا",
+          "car_model": "أكورد",
+          "car_year": 2021,
+          "plate_number": "ق ك ل 9900",
+          "vin": "1HGCR2F83MA019284"
+        }
+      }
+    },
+    "order": {
+      "id": "ORD-3105",
+      "car_make": "هوندا",
+      "car_model": "أكورد",
+      "car_year": 2021,
+      "plate_number": "ق ك ل 9900",
+      "vin": "1HGCR2F83MA019284"
+    },
+    "items": [
+      {
+        "part_name": "صدام أمامي أصلي",
+        "part_number": "71101-TVA-A00",
+        "quantity": 1,
+        "unit_price": 850,
+        "line_total": 850
+      },
+      {
+        "part_name": "شمعة إضاءة Full LED يمين",
+        "part_number": "33100-TVA-A11",
+        "quantity": 1,
+        "unit_price": 584.78,
+        "line_total": 584.78
+      }
+    ]
+  },
+  {
+    "id": "INV-2041",
+    "invoice_number": "INV-2026-002041",
+    "order_id": "ORD-2041",
+    "status": "cancelled",
+    "type": "credit_note",
+    "total_amount": 950,
+    "subtotal": 826.09,
+    "tax_amount": 123.91,
+    "issued_at": "2026-08-15T10:00:00.000Z",
+    "due_date": "2026-08-29T10:00:00.000Z",
+    "client_id": "client-demo-id",
+    "vendor_id": "vendor-demo-id",
+    "client": {
+      "id": "client-demo-id",
+      "full_name": "شركة المشتريات الوطنية",
+      "company_name": "شركة المشتريات الوطنية",
+      "ref_code": "CLI-101",
+      "tax_number": "310123456700003",
+      "commercial_register": "1010892341",
+      "national_address": "الرياض - طريق الملك فهد - حي العليا",
+      "phone": "0501234567"
+    },
+    "vendor": {
+      "id": "vendor-demo-id",
+      "full_name": "مؤسسة قطع الغيار المعتمدة",
+      "company_name": "مؤسسة قطع الغيار المعتمدة",
+      "ref_code": "VND-501",
+      "tax_number": "300123456700003",
+      "commercial_register": "1010987654",
+      "national_address": "الرياض - طريق خريص - حي المنار",
+      "phone": "0551122334"
+    },
+    "deal": {
+      "order_id": "ORD-2041",
+      "orders": {
+        "id": "ORD-2041",
+        "rfq": {
+          "car_make": "مازدا",
+          "car_model": "CX-9",
+          "car_year": 2020,
+          "plate_number": "م ن هـ 1122",
+          "vin": "JM3TCABY9L0209384"
+        }
+      }
+    },
+    "order": {
+      "id": "ORD-2041",
+      "car_make": "مازدا",
+      "car_model": "CX-9",
+      "car_year": 2020,
+      "plate_number": "م ن هـ 1122",
+      "vin": "JM3TCABY9L0209384"
+    },
+    "items": [
+      {
+        "part_name": "مقصات أمامية علوية وسفلية",
+        "part_number": "TK48-34-300",
+        "quantity": 2,
+        "unit_price": 413.045,
+        "line_total": 826.09
+      }
+    ]
+  }
+]

@@ -1,0 +1,63 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: rfq_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: rfq_user
+      POSTGRES_PASSWORD: rfq_password_2026
+      POSTGRES_DB: rfq_marketplace_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  # Redis Cache & Queue Broker
+  redis:
+    image: redis:7-alpine
+    container_name: rfq_redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  # RabbitMQ Message Queue
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: rfq_rabbitmq
+    restart: always
+    ports:
+      - "5672:5672"
+      - "15672:15672" # Management Dashboard
+    environment:
+      RABBITMQ_DEFAULT_USER: rfq_rabbit
+      RABBITMQ_DEFAULT_PASS: rabbit_password_2026
+
+  # NestJS Backend API Service
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: rfq_backend_api
+    restart: always
+    ports:
+      - "4000:4000"
+    environment:
+      PORT: 4000
+      DATABASE_URL: postgresql://rfq_user:rfq_password_2026@postgres:5432/rfq_marketplace_db
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      RABBITMQ_URL: amqp://rfq_rabbit:rabbit_password_2026@rabbitmq:5672
+      JWT_SECRET: super-secret-enterprise-rfq-key-2026
+    depends_on:
+      - postgres
+      - redis
+      - rabbitmq
+
+volumes:
+  postgres_data:
+  redis_data:

@@ -1,0 +1,54 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+/node_modules
+/.pnp
+.pnp.js
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# env files
+.env*
+!.env.example
+*service-account*.json
+!*.example.json
+firebase-service-account.json
+data/firebase-service-account.json
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+*.tar.gz
+*.mp4
+*.apk
+
+# Flutter & Android build artifacts
+mobile_app/build/
+mobile_app/.dart_tool/
+mobile_app/.flutter-plugins
+mobile_app/.flutter-plugins-dependencies
+mobile_app/.packages
+mobile_app/.pub/
+mobile_app/android/.gradle/
+mobile_app/android/local.properties
+mobile_app/android/app/build/
+mobile_app/ios/.symlinks/
+mobile_app/ios/Pods/
+mobile_app/ios/Podfile.lock
+mobile_app/.idea/
+mobile_app/*.iml
+mobile_app/android/*.iml

@@ -1,0 +1,296 @@
+{
+  "test-idem-1787727566636": {
+    "delivery": {
+      "id": "DEL-5501",
+      "order_id": "ORD-5501",
+      "courier_id": "courier-demo-id",
+      "courier_name": "سعيد المطيري",
+      "courier_phone": "0559876543",
+      "courier_vehicle": "دراجة نارية - لوحة د هـ 2214",
+      "delivery_status": "EN_ROUTE_PICKUP",
+      "pickup_address": "الرياض - طريق خريص - مستودع الموردين المركزي",
+      "pickup_city": "الرياض",
+      "pickup_coords": {
+        "lat": 24.7136,
+        "lng": 46.6753
+      },
+      "vendor_name": "مؤسسة قطع الغيار المعتمدة",
+      "vendor_phone": "0551122334",
+      "dropoff_address": "الرياض - حي النرجس - شارع الأمير فيصل",
+      "dropoff_city": "الرياض",
+      "dropoff_district": "حي النرجس",
+      "dropoff_coords": {
+        "lat": 24.8465,
+        "lng": 46.6542
+      },
+      "client_name": "شركة المشتريات الوطنية",
+      "client_phone": "0559876543",
+      "parts_summary": "صدام أمامي أصلي + شبك علوي أصلي",
+      "parts_items": [
+        {
+          "name": "صدام أمامي أصلي",
+          "quantity": 1,
+          "part_type": "أصلي"
+        },
+        {
+          "name": "شبك علوي أصلي",
+          "quantity": 1,
+          "part_type": "أصلي"
+        }
+      ],
+      "delivery_fee_earned": 35,
+      "created_at": "2026-08-26T05:59:26.637Z",
+      "updated_at": "2026-08-26T06:59:26.638Z",
+      "otp_expires_at": "2026-08-29T06:59:26.637Z",
+      "otp_attempts": 0,
+      "pod_photo_url": null,
+      "version": 2
+    },
+    "timestamp": "2026-08-26T06:59:26.641Z"
+  },
+  "idem-step2-1787727566645": {
+    "delivery": {
+      "id": "DEL-5501",
+      "order_id": "ORD-5501",
+      "courier_id": "courier-demo-id",
+      "courier_name": "سعيد المطيري",
+      "courier_phone": "0559876543",
+      "courier_vehicle": "دراجة نارية - لوحة د هـ 2214",
+      "delivery_status": "ARRIVED_PICKUP",
+      "pickup_address": "الرياض - طريق خريص - مستودع الموردين المركزي",
+      "pickup_city": "الرياض",
+      "pickup_coords": {
+        "lat": 24.7136,
+        "lng": 46.6753
+      },
+      "vendor_name": "مؤسسة قطع الغيار المعتمدة",
+      "vendor_phone": "0551122334",
+      "dropoff_address": "الرياض - حي النرجس - شارع الأمير فيصل",
+      "dropoff_city": "الرياض",
+      "dropoff_district": "حي النرجس",
+      "dropoff_coords": {
+        "lat": 24.8465,
+        "lng": 46.6542
+      },
+      "client_name": "شركة المشتريات الوطنية",
+      "client_phone": "0559876543",
+      "parts_summary": "صدام أمامي أصلي + شبك علوي أصلي",
+      "parts_items": [
+        {
+          "name": "صدام أمامي أصلي",
+          "quantity": 1,
+          "part_type": "أصلي"
+        },
+        {
+          "name": "شبك علوي أصلي",
+          "quantity": 1,
+          "part_type": "أصلي"
+        }
+      ],
+      "delivery_fee_earned": 35,
+      "created_at": "2026-08-26T05:59:26.637Z",
+      "updated_at": "2026-08-26T06:59:26.646Z",
+      "otp_expires_at": "2026-08-29T06:59:26.637Z",
+      "otp_attempts": 0,
+      "pod_photo_url": null,
+      "version": 3
+    },
+    "timestamp": "2026-08-26T06:59:26.649Z"
+  },
+  "idem-step3-1787727566649": {
+    "delivery": {
+      "id": "DEL-5501",
+      "order_id": "ORD-5501",
+      "courier_id": "courier-demo-id",
+      "courier_name": "سعيد المطيري",
+      "courier_phone": "0559876543",
+      "courier_vehicle": "دراجة نارية - لوحة د هـ 2214",
+      "delivery_status": "PICKED_UP",
+      "pickup_address": "الرياض - طريق خريص - مستودع الموردين المركزي",
+      "pickup_city": "الرياض",
+      "pickup_coords": {
+        "lat": 24.7136,
+        "lng": 46.6753
+      },
+      "vendor_name": "مؤسسة قطع الغيار المعتمدة",
+      "vendor_phone": "0551122334",
+      "dropoff_address": "الرياض - حي النرجس - شارع الأمير فيصل",
+      "dropoff_city": "الرياض",
+      "dropoff_district": "حي النرجس",
+      "dropoff_coords": {
+        "lat": 24.8465,
+        "lng": 46.6542
+      },
+      "client_name": "شركة المشتريات الوطنية",
+      "client_phone": "0559876543",
+      "parts_summary": "صدام أمامي أصلي + شبك علوي أصلي",
+      "parts_items": [
+        {
+          "name": "صدام أمامي أصلي",
+          "quantity": 1,
+          "part_type": "أصلي"
+        },
+        {
+          "name": "شبك علوي أصلي",
+          "quantity": 1,
+          "part_type": "أصلي"
+        }
+      ],
+      "delivery_fee_earned": 35,
+      "created_at": "2026-08-26T05:59:26.637Z",
+      "updated_at": "2026-08-26T06:59:26.651Z",
+      "otp_expires_at": "2026-08-29T06:59:26.637Z",
+      "otp_attempts": 0,
+      "pod_photo_url": null,
+      "version": 4
+    },
+    "timestamp": "2026-08-26T06:59:26.653Z"
+  },
+  "idem-step4-1787727566654": {
+    "delivery": {
+      "id": "DEL-5501",
+      "order_id": "ORD-5501",
+      "courier_id": "courier-demo-id",
+      "courier_name": "سعيد المطيري",
+      "courier_phone": "0559876543",
+      "courier_vehicle": "دراجة نارية - لوحة د هـ 2214",
+      "delivery_status": "EN_ROUTE_DELIVERY",
+      "pickup_address": "الرياض - طريق خريص - مستودع الموردين المركزي",
+      "pickup_city": "الرياض",
+      "pickup_coords": {
+        "lat": 24.7136,
+        "lng": 46.6753
+      },
+      "vendor_name": "مؤسسة قطع الغيار المعتمدة",
+      "vendor_phone": "0551122334",
+      "dropoff_address": "الرياض - حي النرجس - شارع الأمير فيصل",
+      "dropoff_city": "الرياض",
+      "dropoff_district": "حي النرجس",
+      "dropoff_coords": {
+        "lat": 24.8465,
+        "lng": 46.6542
+      },
+      "client_name": "شركة المشتريات الوطنية",
+      "client_phone": "0559876543",
+      "parts_summary": "صدام أمامي أصلي + شبك علوي أصلي",
+      "parts_items": [
+        {
+          "name": "صدام أمامي أصلي",
+          "quantity": 1,
+          "part_type": "أصلي"
+        },
+        {
+          "name": "شبك علوي أصلي",
+          "quantity": 1,
+          "part_type": "أصلي"
+        }
+      ],
+      "delivery_fee_earned": 35,
+      "created_at": "2026-08-26T05:59:26.637Z",
+      "updated_at": "2026-08-26T06:59:26.656Z",
+      "otp_expires_at": "2026-08-29T06:59:26.637Z",
+      "otp_attempts": 0,
+      "pod_photo_url": null,
+      "version": 5
+    },
+    "timestamp": "2026-08-26T06:59:26.659Z"
+  },
+  "idem-step5-1787727566659": {
+    "delivery": {
+      "id": "DEL-5501",
+      "order_id": "ORD-5501",
+      "courier_id": "courier-demo-id",
+      "courier_name": "سعيد المطيري",
+      "courier_phone": "0559876543",
+      "courier_vehicle": "دراجة نارية - لوحة د هـ 2214",
+      "delivery_status": "ARRIVED_DELIVERY",
+      "pickup_address": "الرياض - طريق خريص - مستودع الموردين المركزي",
+      "pickup_city": "الرياض",
+      "pickup_coords": {
+        "lat": 24.7136,
+        "lng": 46.6753
+      },
+      "vendor_name": "مؤسسة قطع الغيار المعتمدة",
+      "vendor_phone": "0551122334",
+      "dropoff_address": "الرياض - حي النرجس - شارع الأمير فيصل",
+      "dropoff_city": "الرياض",
+      "dropoff_district": "حي النرجس",
+      "dropoff_coords": {
+        "lat": 24.8465,
+        "lng": 46.6542
+      },
+      "client_name": "شركة المشتريات الوطنية",
+      "client_phone": "0559876543",
+      "parts_summary": "صدام أمامي أصلي + شبك علوي أصلي",
+      "parts_items": [
+        {
+          "name": "صدام أمامي أصلي",
+          "quantity": 1,
+          "part_type": "أصلي"
+        },
+        {
+          "name": "شبك علوي أصلي",
+          "quantity": 1,
+          "part_type": "أصلي"
+        }
+      ],
+      "delivery_fee_earned": 35,
+      "created_at": "2026-08-26T05:59:26.637Z",
+      "updated_at": "2026-08-26T06:59:26.661Z",
+      "otp_expires_at": "2026-08-29T06:59:26.637Z",
+      "otp_attempts": 0,
+      "pod_photo_url": null,
+      "version": 6
+    },
+    "timestamp": "2026-08-26T06:59:26.664Z"
+  },
+  "idem-step6-1787727566665": {
+    "delivery": {
+      "id": "DEL-5501",
+      "order_id": "ORD-5501",
+      "courier_id": "courier-demo-id",
+      "courier_name": "سعيد المطيري",
+      "courier_phone": "0559876543",
+      "courier_vehicle": "دراجة نارية - لوحة د هـ 2214",
+      "delivery_status": "DELIVERED",
+      "pickup_address": "الرياض - طريق خريص - مستودع الموردين المركزي",
+      "pickup_city": "الرياض",
+      "pickup_coords": {
+        "lat": 24.7136,
+        "lng": 46.6753
+      },
+      "vendor_name": "مؤسسة قطع الغيار المعتمدة",
+      "vendor_phone": "0551122334",
+      "dropoff_address": "الرياض - حي النرجس - شارع الأمير فيصل",
+      "dropoff_city": "الرياض",
+      "dropoff_district": "حي النرجس",
+      "dropoff_coords": {
+        "lat": 24.8465,
+        "lng": 46.6542
+      },
+      "client_name": "شركة المشتريات الوطنية",
+      "client_phone": "0559876543",
+      "parts_summary": "صدام أمامي أصلي + شبك علوي أصلي",
+      "parts_items": [
+        {
+          "name": "صدام أمامي أصلي",
+          "quantity": 1,
+          "part_type": "أصلي"
+        },
+        {
+          "name": "شبك علوي أصلي",
+          "quantity": 1,
+          "part_type": "أصلي"
+        }
+      ],
+      "delivery_fee_earned": 35,
+      "created_at": "2026-08-26T05:59:26.637Z",
+      "updated_at": "2026-08-26T06:59:26.666Z",
+      "otp_expires_at": "2026-08-29T06:59:26.637Z",
+      "otp_attempts": 0,
+      "pod_photo_url": null,
+      "version": 7
+    },
+    "timestamp": "2026-08-26T06:59:26.671Z"
+  }
+}

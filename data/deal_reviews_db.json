@@ -1,0 +1,30 @@
+[
+  {
+    "id": "rev-3105",
+    "order_id": "ORD-3105",
+    "rater_id": "client-demo-id",
+    "reviewee_id": "vendor-demo-id",
+    "role": "vendor",
+    "rating": 5,
+    "comment": "القطع أصلية ومطابقة تماماً لرقم الهيكل وتم التجهيز بوقت قياسي وتعامل راقي ومحترف.",
+    "created_at": "2026-08-18T17:00:00.000Z",
+    "profiles": {
+      "full_name": "شركة المشتريات الوطنية",
+      "company_name": "شركة المشتريات الوطنية"
+    }
+  },
+  {
+    "id": "rev-5501",
+    "order_id": "ORD-5501",
+    "rater_id": "client-demo-id",
+    "reviewee_id": "vendor-demo-id",
+    "role": "vendor",
+    "rating": 5,
+    "comment": "التزام ممتاز بالمواصفات وجودة التغليف وسرعة تسليم الشحنة لمندوب النقل.",
+    "created_at": "2026-08-20T04:30:00.000Z",
+    "profiles": {
+      "full_name": "شركة المشتريات الوطنية",
+      "company_name": "شركة المشتريات الوطنية"
+    }
+  }
+]

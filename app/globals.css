@@ -1,0 +1,200 @@
+@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700;800;900&display=swap');
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+body {
+  font-family: 'Cairo', system-ui, -apple-system, sans-serif;
+}
+
+/* ─────────────────────────────────────────────────────────
+   Custom keyframes only — accordion-*, fade-*, zoom-*,
+   slide-*, animate-spin, animate-ping, animate-pulse,
+   animate-bounce, etc. are all provided by tw-animate-css.
+   ───────────────────────────────────────────────────────── */
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+:root {
+  --background: oklch(0.99 0.003 250);
+  --foreground: oklch(0.18 0.02 250);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.18 0.02 250);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.18 0.02 250);
+  --primary: oklch(0.32 0.08 255);
+  --primary-foreground: oklch(0.99 0 0);
+  --secondary: oklch(0.96 0.005 250);
+  --secondary-foreground: oklch(0.28 0.04 250);
+  --muted: oklch(0.96 0.005 250);
+  --muted-foreground: oklch(0.5 0.015 250);
+  --accent: oklch(0.55 0.18 150);
+  --accent-foreground: oklch(1 0 0);
+  --destructive: oklch(0.58 0.22 25);
+  --destructive-foreground: oklch(1 0 0);
+  --border: oklch(0.92 0.005 250);
+  --input: oklch(0.94 0.005 250);
+  --ring: oklch(0.32 0.08 255);
+  --chart-1: oklch(0.646 0.222 41.116);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
+  --radius: 0.625rem;
+  --sidebar: oklch(0.99 0 0);
+  --sidebar-foreground: oklch(0.18 0.02 250);
+  --sidebar-primary: oklch(0.32 0.08 255);
+  --sidebar-primary-foreground: oklch(0.99 0 0);
+  --sidebar-accent: oklch(0.96 0.005 250);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.92 0.005 250);
+  --sidebar-ring: oklch(0.708 0 0);
+}
+
+/*
+ * NOTE: We intentionally use `@theme` WITHOUT the `inline` modifier here.
+ *
+ * Some CSS parsers (e.g. tailwind-csstree, and the next-lite browser-side
+ * runtime used in v0 previews) reject `@theme inline { ... }` with the
+ * misleading error "Missing closing } at @theme inline" because they treat
+ * `inline` as a forbidden prelude on the at-rule. Since every value below is
+ * already a `var(--…)` reference, the resolved output is identical with or
+ * without the `inline` modifier.
+ *
+ * The dark-mode block and `@custom-variant dark (...)` were also removed
+ * because the app is RTL light-mode only and never toggles to dark theme.
+ */
+@theme {
+  --font-sans: 'Cairo', var(--font-cairo), sans-serif;
+  --font-mono: ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, Consolas, 'DejaVu Sans Mono', monospace;
+
+  /* Only our custom shimmer animation — everything else (spin, ping, pulse,
+     bounce, fade-*, zoom-*, slide-*, accordion-*) comes from tw-animate-css */
+  --animate-shimmer: shimmer 2s linear infinite;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  --radius-sm: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.625rem;
+  --radius-xl: 0.875rem;
+
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    font-size: 16.5px;
+    scroll-behavior: smooth;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "ss01", "cv11";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-size: 1rem;
+    line-height: 1.6;
+  }
+}
+
+@layer utilities {
+  /* Premium shimmer for skeleton loaders */
+  .skeleton-shimmer {
+    background: linear-gradient(90deg,
+      oklch(0.96 0.005 250) 0%,
+      oklch(0.99 0.003 250) 50%,
+      oklch(0.96 0.005 250) 100%);
+    background-size: 200% 100%;
+    animation: shimmer 2s linear infinite;
+  }
+
+  /* Subtle premium scrollbar */
+  .scrollbar-premium::-webkit-scrollbar { width: 6px; height: 6px; }
+  .scrollbar-premium::-webkit-scrollbar-track { background: transparent; }
+  .scrollbar-premium::-webkit-scrollbar-thumb {
+    background: oklch(0.88 0.005 250);
+    border-radius: 999px;
+  }
+  .scrollbar-premium::-webkit-scrollbar-thumb:hover {
+    background: oklch(0.78 0.01 250);
+  }
+
+  /* ==========================================================================
+     Universal Phone Input & Display Formatting (Strict Left-to-Right LTR)
+     Prevents RTL scrambling of phone numbers (e.g. +966 50 123 4567 reversing to 4567 123 50 966+)
+     ========================================================================== */
+  input[type="tel"],
+  input[type="phone"],
+  input[name*="phone" i],
+  input[name*="mobile" i],
+  input[id*="phone" i],
+  input[id*="mobile" i],
+  input[placeholder*="05" i],
+  input[placeholder*="+966" i],
+  .phone-input,
+  .tel-input,
+  [data-phone-input] {
+    direction: ltr !important;
+    text-align: left !important;
+    unicode-bidi: isolate !important;
+    font-family: ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, Consolas, 'DejaVu Sans Mono', monospace;
+  }
+
+  input[type="tel"]::placeholder,
+  input[type="phone"]::placeholder,
+  input[name*="phone" i]::placeholder,
+  input[name*="mobile" i]::placeholder,
+  input[id*="phone" i]::placeholder,
+  input[id*="mobile" i]::placeholder,
+  input[placeholder*="05" i]::placeholder,
+  input[placeholder*="+966" i]::placeholder,
+  .phone-input::placeholder {
+    direction: ltr !important;
+    text-align: left !important;
+    unicode-bidi: isolate !important;
+  }
+
+  .phone-display,
+  [data-phone],
+  [data-phone-display] {
+    direction: ltr !important;
+    text-align: left !important;
+    display: inline-block;
+    unicode-bidi: isolate !important;
+  }
+}
+

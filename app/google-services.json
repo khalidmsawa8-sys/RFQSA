@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "851140945351",
+    "project_id": "rfq-app-815c3",
+    "storage_bucket": "rfq-app-815c3.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:851140945351:android:2d7d3a35641500780c25e2",
+        "android_client_info": {
+          "package_name": "com.rfqsa.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBN0_z2fQlhi-y1mNuBipsJABUhFHvt4V0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

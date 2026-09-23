@@ -1,0 +1,15 @@
+{
+  "rfq_visibility_duration_minutes": 20,
+  "auto_cancel_expired": true,
+  "maintenance_mode": false,
+  "maintenance_message": "الموقع يخضع حالياً لبعض أعمال التحديث والصيانة المجدولة.",
+  "platform_commission_percent": 5,
+  "vat_percent": 15,
+  "cr_number": "1010789456",
+  "vat_number": "310987654300003",
+  "require_vendor_verification": true,
+  "max_quotes_per_rfq": 10,
+  "allow_customer_cancel_after_quotes": true,
+  "updated_at": "2026-09-05T07:21:50.305Z",
+  "updated_by": "admin"
+}

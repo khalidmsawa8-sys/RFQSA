@@ -1,0 +1,13 @@
+[
+  {
+    "id": "LEDG-1787727566670",
+    "courier_id": "courier-demo-id",
+    "order_id": "ORD-5501",
+    "delivery_id": "DEL-5501",
+    "amount": 35,
+    "entry_type": "COMMISSION_CREDIT",
+    "description": "عمولة توصيل مكتملة للطلب #ORD-5501",
+    "idempotency_key": "LEDG-IDEM-idem-step6-1787727566665",
+    "created_at": "2026-08-26T06:59:26.670Z"
+  }
+]

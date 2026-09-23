@@ -1,0 +1,151 @@
+[
+  {
+    "id": "ORD-5501",
+    "client_id": "client-demo-id",
+    "vendor_id": "vendor-demo-id",
+    "status": "delivered",
+    "total_price": 2850,
+    "created_at": "2026-08-20T02:00:00.000Z",
+    "rfq_id": "RFQ-8412",
+    "quote_id": "Q-8412-1",
+    "parts_description": "[{\"partName\":\"صدام أمامي أصلي\",\"quantity\":1,\"partType\":\"original\"},{\"partName\":\"شمعة أمامية يمين Full LED\",\"quantity\":1,\"partType\":\"original\"}]",
+    "rfqs": {
+      "car_make": "فورد",
+      "car_model": "توروس",
+      "car_year": 2023,
+      "plate_number": "ص ض ط 3344",
+      "vin": "1FA6P8CF9H5102938",
+      "parts_description": "[{\"partName\":\"صدام أمامي أصلي\",\"quantity\":1,\"partType\":\"original\"},{\"partName\":\"شمعة أمامية يمين Full LED\",\"quantity\":1,\"partType\":\"original\"}]",
+      "delivery_location": "الرياض - حي النرجس",
+      "delivery_city": "الرياض"
+    },
+    "vendor": {
+      "full_name": "مؤسسة قطع الغيار المعتمدة",
+      "company_name": "مؤسسة قطع الغيار المعتمدة",
+      "phone": "0551122334"
+    },
+    "profiles": {
+      "full_name": "مؤسسة قطع الغيار المعتمدة",
+      "company_name": "مؤسسة قطع الغيار المعتمدة",
+      "phone": "0551122334"
+    },
+    "deals": [
+      {
+        "id": "DEAL-5501",
+        "status": "active"
+      }
+    ],
+    "courier_status": "DELIVERED"
+  },
+  {
+    "id": "ORD-4920",
+    "client_id": "client-demo-id",
+    "vendor_id": "vendor-demo-id",
+    "status": "shipped",
+    "total_price": 3400,
+    "created_at": "2026-08-19T14:30:00.000Z",
+    "rfq_id": "RFQ-6190",
+    "quote_id": "Q-6190-1",
+    "parts_description": "[{\"partName\":\"مساعدات هيدروليك أمامية وخلفية\",\"quantity\":4,\"partType\":\"original\",\"isUrgent\":true}]",
+    "rfqs": {
+      "car_make": "تويوتا",
+      "car_model": "لاندكروزر",
+      "car_year": 2022,
+      "plate_number": "ع غ ف 7788",
+      "vin": "JTMHT05J3D4091223",
+      "parts_description": "[{\"partName\":\"مساعدات هيدروليك أمامية وخلفية\",\"quantity\":4,\"partType\":\"original\",\"isUrgent\":true}]",
+      "delivery_location": "الرياض - حي السلي",
+      "delivery_city": "الرياض"
+    },
+    "vendor": {
+      "full_name": "مؤسسة قطع الغيار المعتمدة",
+      "company_name": "مؤسسة قطع الغيار المعتمدة",
+      "phone": "0551122334"
+    },
+    "profiles": {
+      "full_name": "مؤسسة قطع الغيار المعتمدة",
+      "company_name": "مؤسسة قطع الغيار المعتمدة",
+      "phone": "0551122334"
+    },
+    "deals": [
+      {
+        "id": "DEAL-4920",
+        "status": "active"
+      }
+    ]
+  },
+  {
+    "id": "ORD-3105",
+    "client_id": "client-demo-id",
+    "vendor_id": "vendor-demo-id",
+    "status": "completed",
+    "total_price": 1650,
+    "created_at": "2026-08-18T16:00:00.000Z",
+    "rfq_id": "RFQ-7320",
+    "quote_id": "Q-7320-1",
+    "parts_description": "[{\"partName\":\"صدام أمامي أصلي\",\"quantity\":1,\"partType\":\"original\"},{\"partName\":\"شمعة إضاءة Full LED يمين\",\"quantity\":1,\"partType\":\"original\"},{\"partName\":\"شبك أمامي نيكل\",\"quantity\":1,\"partType\":\"commercial\"}]",
+    "rfqs": {
+      "car_make": "هوندا",
+      "car_model": "أكورد",
+      "car_year": 2021,
+      "plate_number": "ق ك ل 9900",
+      "vin": "1HGCR2F83MA019284",
+      "parts_description": "[{\"partName\":\"صدام أمامي أصلي\",\"quantity\":1,\"partType\":\"original\"},{\"partName\":\"شمعة إضاءة Full LED يمين\",\"quantity\":1,\"partType\":\"original\"},{\"partName\":\"شبك أمامي نيكل\",\"quantity\":1,\"partType\":\"commercial\"}]",
+      "delivery_location": "الرياض - حي الصحافة",
+      "delivery_city": "الرياض"
+    },
+    "vendor": {
+      "full_name": "مؤسسة قطع الغيار المعتمدة",
+      "company_name": "مؤسسة قطع الغيار المعتمدة",
+      "phone": "0551122334"
+    },
+    "profiles": {
+      "full_name": "مؤسسة قطع الغيار المعتمدة",
+      "company_name": "مؤسسة قطع الغيار المعتمدة",
+      "phone": "0551122334"
+    },
+    "deals": [
+      {
+        "id": "DEAL-3105",
+        "status": "completed"
+      }
+    ]
+  },
+  {
+    "id": "ORD-2041",
+    "client_id": "client-demo-id",
+    "vendor_id": "vendor-demo-id",
+    "status": "cancelled",
+    "total_price": 950,
+    "created_at": "2026-08-17T09:30:00.000Z",
+    "rfq_id": "RFQ-4102",
+    "quote_id": "Q-4102-1",
+    "parts_description": "[{\"partName\":\"مقصات أمامية علوية وسفلية\",\"quantity\":2,\"partType\":\"original\"},{\"partName\":\"جلد مقصات ومساعدات\",\"quantity\":2,\"partType\":\"original\"}]",
+    "rfqs": {
+      "car_make": "مازدا",
+      "car_model": "CX-9",
+      "car_year": 2020,
+      "plate_number": "م ن هـ 1122",
+      "vin": "JM3TCABY9L0209384",
+      "parts_description": "[{\"partName\":\"مقصات أمامية علوية وسفلية\",\"quantity\":2,\"partType\":\"original\"},{\"partName\":\"جلد مقصات ومساعدات\",\"quantity\":2,\"partType\":\"original\"}]",
+      "delivery_location": "الرياض - حي الياسمين",
+      "delivery_city": "الرياض"
+    },
+    "vendor": {
+      "full_name": "مؤسسة قطع الغيار المعتمدة",
+      "company_name": "مؤسسة قطع الغيار المعتمدة",
+      "phone": "0551122334"
+    },
+    "profiles": {
+      "full_name": "مؤسسة قطع الغيار المعتمدة",
+      "company_name": "مؤسسة قطع الغيار المعتمدة",
+      "phone": "0551122334"
+    },
+    "deals": [
+      {
+        "id": "DEAL-2041",
+        "status": "cancelled"
+      }
+    ]
+  }
+]

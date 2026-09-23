@@ -1,0 +1,136 @@
+[
+  {
+    "id": "RFQ-1153",
+    "client_id": "client-demo-id",
+    "car_make": "جي إم سي",
+    "car_model": "هايلوكس",
+    "car_year": 2023,
+    "plate_number": "ت ل ف 336",
+    "vin": "1GCEC19X4DZ115309",
+    "status": "open",
+    "parts_description": "[{\"partName\":\"صدام خلفي\",\"quantity\":1,\"partType\":\"original\",\"isUrgent\":false,\"deliveryLocation\":\"فرع جدة - طريق المدينة - حي الروضة\"},{\"partName\":\"باب شنطة\",\"quantity\":1,\"partType\":\"original\",\"isUrgent\":false,\"deliveryLocation\":\"فرع جدة - طريق المدينة - حي الروضة\"},{\"partName\":\"اسطب خلفي يسار\",\"quantity\":1,\"partType\":\"original\",\"isUrgent\":false,\"deliveryLocation\":\"فرع جدة - طريق المدينة - حي الروضة\"},{\"partName\":\"اسطب خلفي يمين\",\"quantity\":1,\"partType\":\"original\",\"isUrgent\":false,\"deliveryLocation\":\"فرع جدة - طريق المدينة - حي الروضة\"}]",
+    "delivery_location": "فرع جدة - طريق المدينة - حي الروضة",
+    "delivery_city": "جدة",
+    "created_at": "2026-08-22T14:30:00.000Z",
+    "quotes": [],
+    "client": {
+      "full_name": "شركة المشتريات الوطنية",
+      "company_name": "شركة المشتريات الوطنية",
+      "phone": "0559876543"
+    }
+  },
+  {
+    "id": "RFQ-8412",
+    "client_id": "client-demo-id",
+    "car_make": "تويوتا",
+    "car_model": "كامري",
+    "car_year": 2023,
+    "plate_number": "أ ب ج 1234",
+    "vin": "JTEBU5JR8K5092141",
+    "status": "quoted",
+    "parts_description": "[{\"partName\":\"صدام أمامي أصلي\",\"quantity\":1,\"partType\":\"original\",\"partNumber\":\"52119-0X900\",\"isUrgent\":true,\"rfqType\":\"public\",\"deliveryLocation\":\"الرياض - حي الملز\",\"recipientName\":\"أحمد المنصور\",\"recipientPhone\":\"0501234567\"}]",
+    "delivery_location": "الرياض - حي الملز",
+    "delivery_city": "الرياض",
+    "created_at": "2026-08-20T06:30:00.000Z",
+    "quotes": [
+      {
+        "id": "Q-8412-1",
+        "vendor_id": "vendor-demo-id",
+        "total_price": 1850,
+        "delivery_days": 2,
+        "status": "pending",
+        "profiles": {
+          "full_name": "مؤسسة قطع الغيار المعتمدة",
+          "company_name": "مؤسسة قطع الغيار المعتمدة",
+          "phone": "0551122334"
+        }
+      },
+      {
+        "id": "Q-8412-2",
+        "vendor_id": "vendor-2",
+        "total_price": 1920,
+        "delivery_days": 1,
+        "status": "pending",
+        "profiles": {
+          "full_name": "شركة الخليج للقطع",
+          "company_name": "شركة الخليج للقطع",
+          "phone": "0559988776"
+        }
+      }
+    ],
+    "client": {
+      "full_name": "شركة المشتريات الوطنية",
+      "company_name": "شركة المشتريات الوطنية"
+    }
+  },
+  {
+    "id": "RFQ-7320",
+    "client_id": "client-demo-id",
+    "car_make": "هيونداي",
+    "car_model": "سوناتا",
+    "car_year": 2024,
+    "plate_number": "د هـ و 5678",
+    "vin": "KMHE341CBLA109842",
+    "status": "open",
+    "parts_description": "[{\"partName\":\"شمعة إضاءة أمامية يمين Full LED\",\"quantity\":1,\"partType\":\"original\",\"isUrgent\":false,\"rfqType\":\"public\",\"deliveryLocation\":\"جدة - حي الصفا\",\"recipientName\":\"م. خالد الغامدي\",\"recipientPhone\":\"0559876543\"},{\"partName\":\"شبك أمامي نيكل\",\"quantity\":1,\"partType\":\"commercial\"}]",
+    "delivery_location": "جدة - حي الصفا",
+    "delivery_city": "جدة",
+    "created_at": "2026-08-20T04:15:00.000Z",
+    "quotes": [],
+    "client": {
+      "full_name": "شركة المشتريات الوطنية",
+      "company_name": "شركة المشتريات الوطنية"
+    }
+  },
+  {
+    "id": "RFQ-6190",
+    "client_id": "client-demo-id",
+    "car_make": "نيسان",
+    "car_model": "باترول",
+    "car_year": 2022,
+    "plate_number": "ر ز س 9012",
+    "vin": "JN8AZ2NC7M9203114",
+    "status": "quoted",
+    "parts_description": "[{\"partName\":\"مساعدات هيدروليك أمامية وخلفية\",\"quantity\":4,\"partType\":\"original\",\"isUrgent\":true,\"rfqType\":\"direct\",\"targetVendorName\":\"مؤسسة قطع الغيار المعتمدة\",\"deliveryLocation\":\"الدمام - طريق الملك فهد\",\"recipientName\":\"سعود العتيبي\",\"recipientPhone\":\"0561122334\"}]",
+    "delivery_location": "الدمام - طريق الملك فهد",
+    "delivery_city": "الدمام",
+    "created_at": "2026-08-19T22:00:00.000Z",
+    "quotes": [
+      {
+        "id": "Q-6190-1",
+        "vendor_id": "vendor-demo-id",
+        "total_price": 4200,
+        "delivery_days": 3,
+        "status": "pending",
+        "profiles": {
+          "full_name": "مؤسسة قطع الغيار المعتمدة",
+          "company_name": "مؤسسة قطع الغيار المعتمدة",
+          "phone": "0551122334"
+        }
+      }
+    ],
+    "client": {
+      "full_name": "شركة المشتريات الوطنية",
+      "company_name": "شركة المشتريات الوطنية"
+    }
+  },
+  {
+    "id": "RFQ-4102",
+    "client_id": "client-demo-id",
+    "car_make": "تويوتا",
+    "car_model": "هايلكس",
+    "car_year": 2023,
+    "plate_number": "ط ي ك 8821",
+    "vin": "MROEB3CB1K0982134",
+    "status": "closed",
+    "parts_description": "[{\"partName\":\"مقصات أمامية علوية وسفلية\",\"quantity\":2,\"partType\":\"original\",\"deliveryLocation\":\"الرياض - حي السلي\"}]",
+    "delivery_location": "الرياض - حي السلي",
+    "delivery_city": "الرياض",
+    "created_at": "2026-08-18T10:00:00.000Z",
+    "quotes": [],
+    "client": {
+      "full_name": "شركة المشتريات الوطنية",
+      "company_name": "شركة المشتريات الوطنية"
+    }
+  }
+]

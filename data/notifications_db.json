@@ -1,0 +1,93 @@
+[
+  {
+    "id": "NOTIF-101",
+    "user_id": "client-demo-id",
+    "type": "new_quote",
+    "title": "عرض سعر جديد لطلبك #RFQ-8412",
+    "message": "قدمت مؤسسة قطع الغيار المعتمدة عرض سعر لطلب صدام كامري أصلي بقيمة 1,850 ر.س مع تجهيز خلال 48 ساعة.",
+    "rfq_id": "RFQ-8412",
+    "quote_id": "Q-8412-1",
+    "order_id": null,
+    "is_read": false,
+    "created_at": "2026-09-05T16:00:06.581Z",
+    "sent_at": "2026-09-05T16:00:06.582Z"
+  },
+  {
+    "id": "NOTIF-102",
+    "user_id": "client-demo-id",
+    "type": "deal_status_updated",
+    "title": "طلبك قيد التوصيل الآن",
+    "message": "طلبك #ORD-4920 (قطع تويوتا لاندكروزر) تم استلامه من المندوب وهو في الطريق إلى موقعك بحي السلي.",
+    "rfq_id": "RFQ-6190",
+    "quote_id": "Q-6190-1",
+    "order_id": "ORD-4920",
+    "is_read": false,
+    "created_at": "2026-09-05T14:25:06.582Z",
+    "sent_at": "2026-09-05T14:25:06.582Z"
+  },
+  {
+    "id": "NOTIF-103",
+    "user_id": "client-demo-id",
+    "type": "order_completed",
+    "title": "تم تسليم الطلب وإصدار الفاتورة",
+    "message": "تم إكمال تسليم الطلب #ORD-3105 بنجاح، يمكنك الآن تحميل الفاتورة الضريبية المعتمدة إلكترونياً.",
+    "rfq_id": "RFQ-7320",
+    "quote_id": "Q-7320-1",
+    "order_id": "ORD-3105",
+    "is_read": true,
+    "created_at": "2026-09-04T16:25:06.582Z",
+    "sent_at": "2026-09-04T16:25:06.582Z"
+  },
+  {
+    "id": "NOTIF-104",
+    "user_id": "client-demo-id",
+    "type": "announcement",
+    "title": "إشعار نظام: إطلاق ميزة التتبع المباشر",
+    "message": "أصبح بإمكانك الآن متابعة حركة المندوب والشحنات مباشرة عبر الخريطة التفاعلية في منصة رِفق.",
+    "rfq_id": null,
+    "quote_id": null,
+    "order_id": null,
+    "is_read": true,
+    "created_at": "2026-09-03T16:25:06.582Z",
+    "sent_at": "2026-09-03T16:25:06.582Z"
+  },
+  {
+    "id": "NOTIF-201",
+    "user_id": "vendor-demo-id",
+    "type": "new_rfq",
+    "title": "طلب تسعير جديد متوافق مع ماركاتك",
+    "message": "طلب تسعير جديد #RFQ-1153 لقطع جي إم سي متاح الآن في الرادار، قدّم عرضك لكسب الصفقة.",
+    "rfq_id": "RFQ-1153",
+    "quote_id": null,
+    "order_id": null,
+    "is_read": false,
+    "created_at": "2026-09-05T15:50:06.582Z",
+    "sent_at": "2026-09-05T15:50:06.582Z"
+  },
+  {
+    "id": "NOTIF-202",
+    "user_id": "vendor-demo-id",
+    "type": "quote_accepted",
+    "title": "تم قبول عرض السعر الخاص بك!",
+    "message": "وافق العميل شركة المشتريات الوطنية على عرضك للطلب #ORD-5501 بمبلغ 2,850 ر.س. يرجى تجهيز القطع للشحن.",
+    "rfq_id": "RFQ-8412",
+    "quote_id": "Q-8412-1",
+    "order_id": "ORD-5501",
+    "is_read": false,
+    "created_at": "2026-09-05T13:25:06.582Z",
+    "sent_at": "2026-09-05T13:25:06.582Z"
+  },
+  {
+    "id": "NOTIF-203",
+    "user_id": "vendor-demo-id",
+    "type": "wallet_credit",
+    "title": "إيداع رصيد مبيعات في محفظتك",
+    "message": "تم تحويل مبلغ 1,650 ر.س لمحفظتك بعد تأكيد العميل استلام الطلب #ORD-3105 بنجاح.",
+    "rfq_id": "RFQ-7320",
+    "quote_id": "Q-7320-1",
+    "order_id": "ORD-3105",
+    "is_read": true,
+    "created_at": "2026-09-04T14:25:06.582Z",
+    "sent_at": "2026-09-04T14:25:06.582Z"
+  }
+]

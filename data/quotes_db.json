@@ -1,0 +1,87 @@
+[
+  {
+    "id": "Q-8412-1",
+    "rfq_id": "RFQ-8412",
+    "vendor_id": "vendor-demo-id",
+    "total_price": 2850,
+    "delivery_days": 2,
+    "delivery_cost": 0,
+    "notes": "⏱️ مدة التجهيز: يومان | 📝 ملاحظات: القطع أصلية وكالة مع ضمان الوكيل",
+    "status": "pending",
+    "created_at": "2026-08-22T10:00:00.000Z",
+    "items": [
+      {
+        "part_name": "صدام أمامي أصلي",
+        "part_number": "52119-06970",
+        "part_type": "original",
+        "original_price": 1800,
+        "commercial_price": 0,
+        "commercial_brand": null,
+        "quantity": 1,
+        "unit_price": 1800,
+        "line_total": 1800,
+        "availability": "available",
+        "image_url": null
+      },
+      {
+        "part_name": "شبك علوي أصلي",
+        "part_number": "53101-06510",
+        "part_type": "original",
+        "original_price": 680,
+        "commercial_price": 0,
+        "commercial_brand": null,
+        "quantity": 1,
+        "unit_price": 680,
+        "line_total": 680,
+        "availability": "available",
+        "image_url": null
+      }
+    ],
+    "profiles": {
+      "id": "vendor-demo-id",
+      "full_name": "مؤسسة قطع الغيار المعتمدة",
+      "company_name": "مؤسسة قطع الغيار المعتمدة",
+      "phone": "0551122334",
+      "tax_number": "300123456700003",
+      "commercial_register": "1010987654",
+      "national_address": "الرياض - طريق خريص",
+      "ref_code": "VND-501"
+    }
+  },
+  {
+    "id": "Q-6190-1",
+    "rfq_id": "RFQ-6190",
+    "vendor_id": "vendor-demo-id",
+    "total_price": 4200,
+    "delivery_days": 3,
+    "delivery_cost": 0,
+    "notes": "⏱️ مدة التجهيز: 3 أيام | 📝 ملاحظات: توفر شمعات وكالة مع ضمان سنة",
+    "status": "pending",
+    "created_at": "2026-08-22T08:30:00.000Z",
+    "items": [
+      {
+        "part_name": "شمعة أمامية يمين Full LED",
+        "part_number": "81110-60P50",
+        "part_type": "original",
+        "original_price": 4200,
+        "commercial_price": 0,
+        "commercial_brand": null,
+        "quantity": 1,
+        "unit_price": 4200,
+        "line_total": 4200,
+        "availability": "available",
+        "image_url": null
+      }
+    ],
+    "profiles": {
+      "id": "vendor-demo-id",
+      "full_name": "مؤسسة قطع الغيار المعتمدة",
+      "company_name": "مؤسسة قطع الغيار المعتمدة",
+      "phone": "0551122334",
+      "tax_number": "300123456700003",
+      "commercial_register": "1010987654",
+      "national_address": "الرياض - طريق خريص",
+      "ref_code": "VND-501"
+    }
+  }
+]

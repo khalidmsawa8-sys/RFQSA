@@ -1,0 +1,199 @@
+[
+  {
+    "id": "DEL-2041",
+    "order_id": "ORD-2041",
+    "courier_id": "courier-demo-id",
+    "courier_name": "سعيد المطيري",
+    "courier_phone": "0559876543",
+    "courier_vehicle": "دراجة نارية - لوحة د هـ 2214",
+    "delivery_status": "CANCELLED",
+    "pickup_address": "الرياض - طريق خريص - مستودع الموردين المركزي",
+    "pickup_city": "الرياض",
+    "pickup_coords": {
+      "lat": 24.7136,
+      "lng": 46.6753
+    },
+    "vendor_name": "مؤسسة قطع الغيار المعتمدة",
+    "vendor_phone": "0551122334",
+    "dropoff_address": "الرياض - حي الياسمين",
+    "dropoff_city": "الرياض",
+    "dropoff_district": "حي الياسمين",
+    "dropoff_coords": {
+      "lat": 24.8465,
+      "lng": 46.6542
+    },
+    "client_name": "شركة المشتريات الوطنية",
+    "client_phone": "0501234567",
+    "parts_summary": "مقصات أمامية علوية وسفلية (×2) + جلد مقصات ومساعدات (×2)",
+    "parts_items": [
+      {
+        "name": "مقصات أمامية علوية وسفلية",
+        "quantity": 2,
+        "part_type": "original"
+      },
+      {
+        "name": "جلد مقصات ومساعدات",
+        "quantity": 2,
+        "part_type": "original"
+      }
+    ],
+    "delivery_fee_earned": 35,
+    "created_at": "2026-08-17T09:30:00.000Z",
+    "updated_at": "2026-09-14T20:45:15.554Z",
+    "otp_hash": "9a3d809b40268a4f40971d11489c3eead0cab76795c4a182448935154804a7e9",
+    "otp_salt": "d0d13de56e4ea894f4df3c3de317f940",
+    "otp_expires_at": "2026-09-17T20:45:15.554Z",
+    "otp_attempts": 0,
+    "pod_photo_url": null,
+    "version": 1
+  },
+  {
+    "id": "DEL-3105",
+    "order_id": "ORD-3105",
+    "courier_id": "courier-demo-id",
+    "courier_name": "سعيد المطيري",
+    "courier_phone": "0559876543",
+    "courier_vehicle": "دراجة نارية - لوحة د هـ 2214",
+    "delivery_status": "DELIVERED",
+    "pickup_address": "الرياض - طريق خريص - مستودع الموردين المركزي",
+    "pickup_city": "الرياض",
+    "pickup_coords": {
+      "lat": 24.7136,
+      "lng": 46.6753
+    },
+    "vendor_name": "مؤسسة قطع الغيار المعتمدة",
+    "vendor_phone": "0551122334",
+    "dropoff_address": "الرياض - حي الصحافة",
+    "dropoff_city": "الرياض",
+    "dropoff_district": "حي الصحافة",
+    "dropoff_coords": {
+      "lat": 24.8465,
+      "lng": 46.6542
+    },
+    "client_name": "شركة المشتريات الوطنية",
+    "client_phone": "0501234567",
+    "parts_summary": "صدام أمامي أصلي (×1) + شمعة إضاءة Full LED يمين (×1) + شبك أمامي نيكل (×1)",
+    "parts_items": [
+      {
+        "name": "صدام أمامي أصلي",
+        "quantity": 1,
+        "part_type": "original"
+      },
+      {
+        "name": "شمعة إضاءة Full LED يمين",
+        "quantity": 1,
+        "part_type": "original"
+      },
+      {
+        "name": "شبك أمامي نيكل",
+        "quantity": 1,
+        "part_type": "commercial"
+      }
+    ],
+    "delivery_fee_earned": 35,
+    "created_at": "2026-08-18T16:00:00.000Z",
+    "updated_at": "2026-09-14T20:45:15.554Z",
+    "otp_hash": "ccaeb9a625970854965a123f7f9d10a9e8ceeb70b6f5eafb38ca8de39411af8d",
+    "otp_salt": "de9f03bbaf961b4cd5ce2cd164189b6d",
+    "otp_expires_at": "2026-09-17T20:45:15.554Z",
+    "otp_attempts": 0,
+    "pod_photo_url": null,
+    "version": 1
+  },
+  {
+    "id": "DEL-5501",
+    "order_id": "ORD-5501",
+    "courier_id": "courier-demo-id",
+    "courier_name": "سعيد المطيري",
+    "courier_phone": "0559876543",
+    "courier_vehicle": "دراجة نارية - لوحة د هـ 2214",
+    "delivery_status": "DELIVERED",
+    "pickup_address": "الرياض - طريق خريص - مستودع الموردين المركزي",
+    "pickup_city": "الرياض",
+    "pickup_coords": {
+      "lat": 24.7136,
+      "lng": 46.6753
+    },
+    "vendor_name": "مؤسسة قطع الغيار المعتمدة",
+    "vendor_phone": "0551122334",
+    "dropoff_address": "الرياض - حي النرجس - شارع الأمير فيصل",
+    "dropoff_city": "الرياض",
+    "dropoff_district": "حي النرجس",
+    "dropoff_coords": {
+      "lat": 24.8465,
+      "lng": 46.6542
+    },
+    "client_name": "شركة المشتريات الوطنية",
+    "client_phone": "0559876543",
+    "parts_summary": "صدام أمامي أصلي + شبك علوي أصلي",
+    "parts_items": [
+      {
+        "name": "صدام أمامي أصلي",
+        "quantity": 1,
+        "part_type": "أصلي"
+      },
+      {
+        "name": "شبك علوي أصلي",
+        "quantity": 1,
+        "part_type": "أصلي"
+      }
+    ],
+    "delivery_fee_earned": 35,
+    "created_at": "2026-08-26T05:59:26.637Z",
+    "updated_at": "2026-08-26T06:59:26.666Z",
+    "otp_hash": "c14ff1d88724c3c90209887374f82e8744345219124c44ffe64e13e023721241",
+    "otp_salt": "f4ae2fd0bc3398a60966007ee56efe51",
+    "otp_expires_at": "2026-08-29T06:59:26.637Z",
+    "otp_attempts": 0,
+    "pod_photo_url": null,
+    "version": 7
+  },
+  {
+    "id": "DEL-4920",
+    "order_id": "ORD-4920",
+    "courier_id": "courier-demo-id",
+    "courier_name": "سعيد المطيري",
+    "courier_phone": "0559876543",
+    "courier_vehicle": "دراجة نارية - لوحة د هـ 2214",
+    "delivery_status": "EN_ROUTE_DELIVERY",
+    "pickup_address": "الرياض - صناعية الشفاء",
+    "pickup_city": "الرياض",
+    "pickup_coords": {
+      "lat": 24.5823,
+      "lng": 46.7112
+    },
+    "vendor_name": "مؤسسة قطع الغيار المعتمدة",
+    "vendor_phone": "0551122334",
+    "dropoff_address": "الرياض - حي السلي - مخرج 16",
+    "dropoff_city": "الرياض",
+    "dropoff_district": "حي السلي",
+    "dropoff_coords": {
+      "lat": 24.6432,
+      "lng": 46.8214
+    },
+    "client_name": "عميل موثق",
+    "client_phone": "0501234567",
+    "parts_summary": "مجموعة فلاتر وأقمشة فرامل لاندكروزر",
+    "parts_items": [
+      {
+        "name": "أقمشة فرامل أمامية",
+        "quantity": 1,
+        "part_type": "أصلي"
+      },
+      {
+        "name": "فلتر زيت ومكيف",
+        "quantity": 2,
+        "part_type": "أصلي"
+      }
+    ],
+    "delivery_fee_earned": 40,
+    "created_at": "2026-08-26T04:59:26.637Z",
+    "updated_at": "2026-08-26T06:59:26.637Z",
+    "otp_hash": "c14ff1d88724c3c90209887374f82e8744345219124c44ffe64e13e023721241",
+    "otp_salt": "f4ae2fd0bc3398a60966007ee56efe51",
+    "otp_expires_at": "2026-08-29T06:59:26.637Z",
+    "otp_attempts": 0,
+    "pod_photo_url": null,
+    "version": 3
+  }
+]
