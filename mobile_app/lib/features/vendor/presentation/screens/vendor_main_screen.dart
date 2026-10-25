@@ -247,7 +247,7 @@ class _VendorMainScreenState extends State<VendorMainScreen> {
                                   border: Border.all(color: const Color(0xFF10B981).withOpacity(0.4)),
                                 ),
                                 child: Text(
-                                  currentUser?.roleNameAr.isNotEmpty == true
+                                  currentUser?.roleNameAr?.isNotEmpty == true
                                       ? '${currentUser!.roleNameAr} ⚡'
                                       : 'مورد معتمد B2B ⚡',
                                   style: const TextStyle(color: Color(0xFF34D399), fontSize: 9.5, fontWeight: FontWeight.w900),

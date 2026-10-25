@@ -35,7 +35,7 @@ class AppSidebarDrawer extends StatelessWidget {
                         : 'شركة المشتريات الوطنية');
 
             final entitySubtitle = user?.roleNameAr ??
-                (user?.roleId != null ? getRoleDisplayTitle(user.roleId, null) : null) ??
+                (user?.roleId != null ? getRoleDisplayTitle(user!.roleId, null) : null) ??
                 (isVendor
                     ? 'مالك المتجر / شريك مفوض'
                     : isCourier

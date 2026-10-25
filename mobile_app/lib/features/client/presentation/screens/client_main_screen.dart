@@ -295,7 +295,7 @@ class _ClientMainScreenState extends State<ClientMainScreen> {
                                   border: Border.all(color: const Color(0xFF3B82F6).withOpacity(0.4)),
                                 ),
                                 child: Text(
-                                  currentUser?.roleNameAr.isNotEmpty == true
+                                  currentUser?.roleNameAr?.isNotEmpty == true
                                       ? '${currentUser!.roleNameAr} ⚡'
                                       : 'منشأة عميل معتمدة B2B ⚡',
                                   style: const TextStyle(color: Color(0xFF60A5FA), fontSize: 9.5, fontWeight: FontWeight.w900),
