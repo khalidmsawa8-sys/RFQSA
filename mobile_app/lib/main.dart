@@ -51,6 +51,9 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:rfqsa_mobile/features/shared/presentation/screens/notifications_screen.dart';
 import 'package:rfqsa_mobile/features/client/models/rfq_model.dart';
 import 'package:rfqsa_mobile/features/courier/models/delivery_task_model.dart';
+import 'package:rfqsa_mobile/core/navigation/navigation_guard.dart';
+import 'package:rfqsa_mobile/features/shared/presentation/screens/access_restricted_screen.dart';
+import 'package:rfqsa_mobile/features/auth/bloc/auth_state.dart';
 
 final GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>();
 
@@ -168,13 +171,23 @@ class RfqsaApp extends StatelessWidget {
         initialRoute: AppRouter.splash,
         onGenerateRoute: (settings) => AppRouter.generateRoute(
           settings,
-          screenBuilder: (route, args) => _buildScreen(route, args),
+          screenBuilder: (context, route, args) => _buildScreen(context, route, args),
         ),
       ),
     );
   }
 
-  Widget _buildScreen(String route, dynamic args) {
+  Widget _buildScreen(BuildContext context, String route, dynamic args) {
+    try {
+      final authState = BlocProvider.of<AuthBloc>(context).state;
+      final currentUser = (authState is AuthenticatedState) ? authState.user : null;
+      if (!NavigationGuard.isRouteAllowed(route, currentUser)) {
+        return AccessRestrictedScreen(
+          featureName: NavigationGuard.getRouteTitle(route),
+        );
+      }
+    } catch (_) {}
+
     switch (route) {
       // ──────── AUTH SCREENS ────────
       case AppRouter.splash:

@@ -81,8 +81,14 @@ export async function getVerifiedAuthContext(
     adminHeader = headerStore.get("x-admin-request") || headerStore.get("x-admin-role") || "";
     const headerUserId = headerStore.get("x-user-id");
     const headerUserRole = headerStore.get("x-user-role") || headerStore.get("x-role");
+    const headerMemberId = headerStore.get("x-member-id");
+    const headerUserEmail = headerStore.get("x-user-email");
+    const headerRole = headerStore.get("x-rfq-role");
     if (!userIdCookie && headerUserId) userIdCookie = headerUserId;
     if (!sessionCookie && headerUserRole) sessionCookie = headerUserRole;
+    if (!memberIdCookie && headerMemberId) memberIdCookie = headerMemberId;
+    if (!userEmailCookie && headerUserEmail) userEmailCookie = headerUserEmail;
+    if (!roleCookie && headerRole) roleCookie = headerRole;
   } catch {}
 
   // If user object was not resolved by auth or is demo, but explicit userId is present

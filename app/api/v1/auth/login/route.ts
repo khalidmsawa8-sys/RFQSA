@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import fs from "fs";
 import path from "path";
+import { ROLE_DEFAULT_PERMISSIONS, calculateEffectivePermissions } from "@/lib/rbac/permissions";
+import { getRoleDisplayNameAr } from "@/lib/rbac/navigation-guard";
 
 export async function POST(req: NextRequest) {
   try {
@@ -260,6 +262,7 @@ export async function POST(req: NextRequest) {
     let orgId = "";
     let memberId = "";
     let roleId = "";
+    let matchedMemberRecord: any = null;
 
     try {
       const { data: orgs } = await supabase.from("organizations").select("*");
@@ -271,6 +274,7 @@ export async function POST(req: NextRequest) {
         (m: any) => m.user_id === matchedProfile.id || (m.email && m.email.toLowerCase() === matchedProfile.email?.toLowerCase())
       );
       if (userMember) {
+        matchedMemberRecord = userMember;
         memberId = userMember.id;
         roleId = userMember.role_id;
         if (!orgId && userMember.organization_id) orgId = userMember.organization_id;
@@ -291,6 +295,39 @@ export async function POST(req: NextRequest) {
       else roleId = "client_owner";
     }
 
+    // Resolve RBAC permissions and display role name
+    let baseRolePerms = ROLE_DEFAULT_PERMISSIONS[roleId as keyof typeof ROLE_DEFAULT_PERMISSIONS] || [];
+    let customRoleNameAr = "";
+    if (baseRolePerms.length === 0) {
+      try {
+        const { data: dbRolePerms } = await supabase
+          .from("role_permissions")
+          .select("permission_key")
+          .eq("role_id", roleId);
+        if (dbRolePerms && dbRolePerms.length > 0) {
+          baseRolePerms = dbRolePerms.map((r: any) => r.permission_key);
+        }
+        const { data: cRole } = await supabase
+          .from("organization_roles")
+          .select("name_ar")
+          .eq("id", roleId)
+          .maybeSingle();
+        if (cRole?.name_ar) customRoleNameAr = cRole.name_ar;
+      } catch (e) {}
+    }
+
+    const customGrants = matchedMemberRecord?.custom_permissions || [];
+    const explicitDenies = matchedMemberRecord?.explicit_denies || [];
+    const effectivePermissions = calculateEffectivePermissions(
+      baseRolePerms.length > 0 ? baseRolePerms : (roleId as any),
+      customGrants,
+      explicitDenies
+    );
+
+    const isOwner = roleId === "client_owner" || roleId === "vendor_owner";
+    const isSuperAdmin = roleId === "platform_super_admin" || sessionRole === "admin";
+    const roleNameAr = getRoleDisplayNameAr(roleId, customRoleNameAr);
+
     const targetRoute =
       sessionRole === "admin"
         ? "/admin"
@@ -306,10 +343,18 @@ export async function POST(req: NextRequest) {
       redirectUrl: targetRoute,
       user: {
         id: matchedProfile.id,
+        userId: matchedProfile.id,
         email: matchedProfile.email || "",
         fullName: matchedProfile.full_name || matchedProfile.company_name,
+        companyName: matchedProfile.company_name || matchedProfile.full_name,
         role: sessionRole,
         roleId: roleId,
+        roleNameAr: roleNameAr,
+        organizationId: orgId,
+        memberId: memberId,
+        isOwner: isOwner,
+        isSuperAdmin: isSuperAdmin,
+        permissions: Array.from(effectivePermissions),
         refCode: matchedProfile.ref_code || "",
       },
     });

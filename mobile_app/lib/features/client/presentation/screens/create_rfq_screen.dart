@@ -12,6 +12,7 @@ import 'package:rfqsa_mobile/features/client/models/rfq_model.dart';
 import 'package:rfqsa_mobile/features/client/models/vehicle_model.dart';
 import 'package:rfqsa_mobile/features/client/repositories/client_repository.dart';
 import 'package:rfqsa_mobile/core/notifications/notification_service.dart';
+import 'package:rfqsa_mobile/core/constants/car_constants.dart';
 
 // ── Models & Constants ──
 class BranchLocationItem {
@@ -79,46 +80,8 @@ const List<String> kSaudiCities = [
   'ينبع',
 ];
 
-const List<String> kCarMakes = [
-  'تويوتا',
-  'هيونداي',
-  'كيا',
-  'نيسان',
-  'جي إم سي',
-  'فورد',
-  'شيفروليه',
-  'هوندا',
-  'مرسيدس',
-  'بي إم دبليو',
-  'لكزس',
-  'مازدا',
-  'ميتسوبيشي',
-  'جيب',
-  'أودي',
-  'فولكسفاغن',
-  'سوبارو',
-  'بيجو',
-  'رينو',
-  'إنفينيتي',
-  'أخرى',
-];
+// kCarMakes and kCarModels are centrally defined and imported from package:rfqsa_mobile/core/constants/car_constants.dart
 
-const Map<String, List<String>> kCarModels = {
-  'تويوتا': ['كامري', 'كورولا', 'لاند كروزر', 'برادو', 'راف4', 'هايلكس', 'يارس', 'أفالون', 'سيكويا', 'فورتشنر'],
-  'هيونداي': ['إيلانترا', 'سوناتا', 'توسان', 'سانتافي', 'كريتا', 'أزيرا', 'H1', 'أكسنت'],
-  'كيا': ['أوبتيما', 'K5', 'سبورتاج', 'سورينتو', 'بيكانتو', 'سيراتو', 'تيلورايد', 'كادينزا'],
-  'نيسان': ['التيما', 'ماكسيما', 'باترول', 'إكس-تريل', 'مورانو', 'أرمادا', 'صني', 'تيدا', 'نافارا'],
-  'جي إم سي': ['يوكن', 'سييرا', 'اكاديا', 'تيرين', 'سفاري', 'دينالي'],
-  'فورد': ['تورس', 'إكسبلورر', 'إف-150', 'موستانج', 'إيدج', 'برونكو', 'إكسبيديشن'],
-  'شيفروليه': ['تاهو', 'ماليبو', 'سيلفرادو', 'كابتيفا', 'إمبالا', 'كابرس', 'بليزر'],
-  'هوندا': ['أكورد', 'سيفيك', 'CR-V', 'HR-V', 'بايلوت', 'أوديسي'],
-  'مرسيدس': ['C200', 'E200', 'E300', 'S500', 'GLC', 'GLE', 'A200', 'G63'],
-  'بي إم دبليو': ['318i', '320i', '520i', '730i', 'X3', 'X5', 'X7', 'M5'],
-  'لكزس': ['ES350', 'LX600', 'LS500', 'RX350', 'NX300', 'GX460', 'IS300'],
-  'مازدا': ['مازدا 6', 'CX-9', 'CX-5', 'مازدا 3', 'CX-30'],
-  'ميتسوبيشي': ['باجيرو', 'لانسر', 'أوتلاندر', 'L200', 'إكليبس كروس'],
-  'جيب': ['جراند شيروكي', 'رانجلر', 'كومباس', 'شيروكي', 'جلاديتور'],
-};
 
 class PartsCategoryOption {
   final String id;

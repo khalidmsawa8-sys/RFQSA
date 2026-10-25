@@ -5,6 +5,8 @@ import 'package:rfqsa_mobile/core/routing/app_router.dart';
 import 'package:rfqsa_mobile/features/auth/bloc/auth_bloc.dart';
 import 'package:rfqsa_mobile/features/auth/bloc/auth_event.dart';
 import 'package:rfqsa_mobile/features/auth/bloc/auth_state.dart';
+import 'package:rfqsa_mobile/core/navigation/navigation_guard.dart';
+import 'package:rfqsa_mobile/features/auth/models/user_model.dart';
 
 /// Exact 1:1 Match of the Official RIFQ Web Platform Sidebar Drawer
 class AppSidebarDrawer extends StatelessWidget {
@@ -32,11 +34,13 @@ class AppSidebarDrawer extends StatelessWidget {
                         ? 'مندوب التوصيل المعتمد'
                         : 'شركة المشتريات الوطنية');
 
-            final entitySubtitle = isVendor
-                ? 'مالك المتجر / شريك مفوض'
-                : isCourier
-                    ? 'مندوب مرخص / أسطول التوصيل'
-                    : 'المالك / المدير العام';
+            final entitySubtitle = user?.roleNameAr ??
+                (user?.roleId != null ? getRoleDisplayTitle(user.roleId, null) : null) ??
+                (isVendor
+                    ? 'مالك المتجر / شريك مفوض'
+                    : isCourier
+                        ? 'مندوب مرخص / أسطول التوصيل'
+                        : 'المالك / المدير العام');
 
             return Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -253,63 +257,71 @@ class AppSidebarDrawer extends StatelessWidget {
                           route: AppRouter.clientHome,
                           isActive: currentRoute == AppRouter.clientHome,
                         ),
-                        _buildClientCtaItem(
-                          context,
-                          label: 'طلب عرض سعر جديد',
-                          route: AppRouter.clientCreateRfq,
-                        ),
-                        _buildNavItem(
-                          context,
-                          icon: Icons.storefront_outlined,
-                          label: 'خريطة الموردين والفروع',
-                          route: AppRouter.clientVendorsMap,
-                          isActive: currentRoute == AppRouter.clientVendorsMap,
-                          badge: '🗺️',
-                        ),
-                        _buildNavItem(
-                          context,
-                          icon: Icons.directions_car_filled_outlined,
-                          label: 'إدارة المركبات',
-                          route: AppRouter.clientGarage,
-                          isActive: currentRoute == AppRouter.clientGarage,
-                          badge: '🚗',
-                        ),
-                        _buildNavItem(
-                          context,
-                          icon: Icons.shopping_bag_outlined,
-                          label: 'إدارة الطلبات',
-                          route: AppRouter.clientOrders,
-                          isActive: currentRoute == AppRouter.clientOrders,
-                          badge: 'مباشر',
-                        ),
-                        _buildNavItem(
-                          context,
-                          icon: Icons.receipt_long_outlined,
-                          label: 'الفواتير الضريبية',
-                          route: AppRouter.clientInvoices,
-                          isActive: currentRoute == AppRouter.clientInvoices,
-                        ),
-                        _buildNavItem(
-                          context,
-                          icon: Icons.account_balance_wallet_outlined,
-                          label: 'المحفظة والرصيد',
-                          route: AppRouter.wallet,
-                          isActive: currentRoute == AppRouter.wallet,
-                        ),
-                        _buildNavItem(
-                          context,
-                          icon: Icons.person_outline_rounded,
-                          label: 'الملف المؤسسي',
-                          route: AppRouter.profile,
-                          isActive: currentRoute == AppRouter.profile,
-                        ),
-                        _buildNavItem(
-                          context,
-                          icon: Icons.shield_outlined,
-                          label: 'الأدوار وفريق العمل',
-                          route: AppRouter.clientRoles,
-                          isActive: currentRoute == AppRouter.clientRoles,
-                        ),
+                        if (NavigationGuard.isRouteAllowed(AppRouter.clientCreateRfq, user))
+                          _buildClientCtaItem(
+                            context,
+                            label: 'طلب عرض سعر جديد',
+                            route: AppRouter.clientCreateRfq,
+                          ),
+                        if (NavigationGuard.isRouteAllowed(AppRouter.clientVendorsMap, user))
+                          _buildNavItem(
+                            context,
+                            icon: Icons.storefront_outlined,
+                            label: 'خريطة الموردين والفروع',
+                            route: AppRouter.clientVendorsMap,
+                            isActive: currentRoute == AppRouter.clientVendorsMap,
+                            badge: '🗺️',
+                          ),
+                        if (NavigationGuard.isRouteAllowed(AppRouter.clientGarage, user))
+                          _buildNavItem(
+                            context,
+                            icon: Icons.directions_car_filled_outlined,
+                            label: 'إدارة المركبات',
+                            route: AppRouter.clientGarage,
+                            isActive: currentRoute == AppRouter.clientGarage,
+                            badge: '🚗',
+                          ),
+                        if (NavigationGuard.isRouteAllowed(AppRouter.clientOrders, user))
+                          _buildNavItem(
+                            context,
+                            icon: Icons.shopping_bag_outlined,
+                            label: 'إدارة الطلبات',
+                            route: AppRouter.clientOrders,
+                            isActive: currentRoute == AppRouter.clientOrders,
+                            badge: 'مباشر',
+                          ),
+                        if (NavigationGuard.isRouteAllowed(AppRouter.clientInvoices, user))
+                          _buildNavItem(
+                            context,
+                            icon: Icons.receipt_long_outlined,
+                            label: 'الفواتير الضريبية',
+                            route: AppRouter.clientInvoices,
+                            isActive: currentRoute == AppRouter.clientInvoices,
+                          ),
+                        if (NavigationGuard.isRouteAllowed(AppRouter.wallet, user))
+                          _buildNavItem(
+                            context,
+                            icon: Icons.account_balance_wallet_outlined,
+                            label: 'المحفظة والرصيد',
+                            route: AppRouter.wallet,
+                            isActive: currentRoute == AppRouter.wallet,
+                          ),
+                        if (NavigationGuard.isRouteAllowed(AppRouter.profile, user))
+                          _buildNavItem(
+                            context,
+                            icon: Icons.person_outline_rounded,
+                            label: 'الملف المؤسسي',
+                            route: AppRouter.profile,
+                            isActive: currentRoute == AppRouter.profile,
+                          ),
+                        if (NavigationGuard.isRouteAllowed(AppRouter.clientRoles, user))
+                          _buildNavItem(
+                            context,
+                            icon: Icons.shield_outlined,
+                            label: 'الأدوار وفريق العمل',
+                            route: AppRouter.clientRoles,
+                            isActive: currentRoute == AppRouter.clientRoles,
+                          ),
                         _buildNavItem(
                           context,
                           icon: Icons.help_outline_rounded,
@@ -317,14 +329,15 @@ class AppSidebarDrawer extends StatelessWidget {
                           route: AppRouter.clientSupport,
                           isActive: currentRoute == AppRouter.clientSupport,
                         ),
-                        _buildNavItem(
-                          context,
-                          icon: Icons.settings_outlined,
-                          label: 'إعدادات العضوية',
-                          route: AppRouter.clientSettings,
-                          isActive: currentRoute == AppRouter.clientSettings,
-                          badge: '⚙',
-                        ),
+                        if (NavigationGuard.isRouteAllowed(AppRouter.clientSettings, user))
+                          _buildNavItem(
+                            context,
+                            icon: Icons.settings_outlined,
+                            label: 'إعدادات العضوية',
+                            route: AppRouter.clientSettings,
+                            isActive: currentRoute == AppRouter.clientSettings,
+                            badge: '⚙',
+                          ),
                       ],
 
                       // ──────── VENDOR MENU ────────
@@ -336,58 +349,65 @@ class AppSidebarDrawer extends StatelessWidget {
                           route: AppRouter.vendorHome,
                           isActive: currentRoute == AppRouter.vendorHome,
                         ),
-                        _buildNavItem(
-                          context,
-                          icon: Icons.bolt_rounded,
-                          label: 'رادار الطلبات الذكي',
-                          route: AppRouter.vendorRadar,
-                          isActive: currentRoute == AppRouter.vendorRadar,
-                          badge: 'ذكي ⚡',
-                        ),
-                        _buildNavItem(
-                          context,
-                          icon: Icons.storefront_outlined,
-                          label: 'موقع الفرع والاستلام',
-                          route: AppRouter.vendorSettings,
-                          isActive: currentRoute == AppRouter.vendorSettings,
-                          badge: 'خريطة 📍',
-                        ),
-                        _buildNavItem(
-                          context,
-                          icon: Icons.shopping_bag_outlined,
-                          label: 'الطلبات والمبيعات',
-                          route: AppRouter.vendorOrders,
-                          isActive: currentRoute == AppRouter.vendorOrders,
-                          badge: 'نشط',
-                        ),
-                        _buildNavItem(
-                          context,
-                          icon: Icons.receipt_long_outlined,
-                          label: 'الفواتير الضريبية',
-                          route: AppRouter.vendorInvoices,
-                          isActive: currentRoute == AppRouter.vendorInvoices,
-                        ),
-                        _buildNavItem(
-                          context,
-                          icon: Icons.account_balance_wallet_outlined,
-                          label: 'المحفظة والأرباح',
-                          route: AppRouter.wallet,
-                          isActive: currentRoute == AppRouter.wallet,
-                        ),
-                        _buildNavItem(
-                          context,
-                          icon: Icons.person_outline_rounded,
-                          label: 'الملف التجاري',
-                          route: AppRouter.profile,
-                          isActive: currentRoute == AppRouter.profile,
-                        ),
-                        _buildNavItem(
-                          context,
-                          icon: Icons.shield_outlined,
-                          label: 'الأدوار وفريق العمل',
-                          route: AppRouter.vendorRoles,
-                          isActive: currentRoute == AppRouter.vendorRoles,
-                        ),
+                        if (NavigationGuard.isRouteAllowed(AppRouter.vendorRadar, user))
+                          _buildNavItem(
+                            context,
+                            icon: Icons.bolt_rounded,
+                            label: 'رادار الطلبات الذكي',
+                            route: AppRouter.vendorRadar,
+                            isActive: currentRoute == AppRouter.vendorRadar,
+                            badge: 'ذكي ⚡',
+                          ),
+                        if (NavigationGuard.isRouteAllowed(AppRouter.vendorSettings, user))
+                          _buildNavItem(
+                            context,
+                            icon: Icons.storefront_outlined,
+                            label: 'موقع الفرع والاستلام',
+                            route: AppRouter.vendorSettings,
+                            isActive: currentRoute == AppRouter.vendorSettings,
+                            badge: 'خريطة 📍',
+                          ),
+                        if (NavigationGuard.isRouteAllowed(AppRouter.vendorOrders, user))
+                          _buildNavItem(
+                            context,
+                            icon: Icons.shopping_bag_outlined,
+                            label: 'الطلبات والمبيعات',
+                            route: AppRouter.vendorOrders,
+                            isActive: currentRoute == AppRouter.vendorOrders,
+                            badge: 'نشط',
+                          ),
+                        if (NavigationGuard.isRouteAllowed(AppRouter.vendorInvoices, user))
+                          _buildNavItem(
+                            context,
+                            icon: Icons.receipt_long_outlined,
+                            label: 'الفواتير الضريبية',
+                            route: AppRouter.vendorInvoices,
+                            isActive: currentRoute == AppRouter.vendorInvoices,
+                          ),
+                        if (NavigationGuard.isRouteAllowed(AppRouter.wallet, user))
+                          _buildNavItem(
+                            context,
+                            icon: Icons.account_balance_wallet_outlined,
+                            label: 'المحفظة والأرباح',
+                            route: AppRouter.wallet,
+                            isActive: currentRoute == AppRouter.wallet,
+                          ),
+                        if (NavigationGuard.isRouteAllowed(AppRouter.profile, user))
+                          _buildNavItem(
+                            context,
+                            icon: Icons.person_outline_rounded,
+                            label: 'الملف التجاري',
+                            route: AppRouter.profile,
+                            isActive: currentRoute == AppRouter.profile,
+                          ),
+                        if (NavigationGuard.isRouteAllowed(AppRouter.vendorRoles, user))
+                          _buildNavItem(
+                            context,
+                            icon: Icons.shield_outlined,
+                            label: 'الأدوار وفريق العمل',
+                            route: AppRouter.vendorRoles,
+                            isActive: currentRoute == AppRouter.vendorRoles,
+                          ),
                         _buildNavItem(
                           context,
                           icon: Icons.help_outline_rounded,
@@ -395,14 +415,15 @@ class AppSidebarDrawer extends StatelessWidget {
                           route: AppRouter.vendorSupport,
                           isActive: currentRoute == AppRouter.vendorSupport,
                         ),
-                        _buildNavItem(
-                          context,
-                          icon: Icons.settings_outlined,
-                          label: 'إعدادات العضوية',
-                          route: AppRouter.vendorSettings,
-                          isActive: currentRoute == AppRouter.vendorSettings,
-                          badge: '⚙',
-                        ),
+                        if (NavigationGuard.isRouteAllowed(AppRouter.vendorSettings, user))
+                          _buildNavItem(
+                            context,
+                            icon: Icons.settings_outlined,
+                            label: 'إعدادات العضوية',
+                            route: AppRouter.vendorSettings,
+                            isActive: currentRoute == AppRouter.vendorSettings,
+                            badge: '⚙',
+                          ),
                       ],
 
                       // ──────── COURIER MENU ────────

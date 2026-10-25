@@ -1,13 +1,33 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:rfqsa_mobile/core/theme/app_colors.dart';
-import 'package:rfqsa_mobile/core/theme/app_typography.dart';
 import 'package:rfqsa_mobile/core/routing/app_router.dart';
+import 'package:rfqsa_mobile/core/navigation/navigation_guard.dart';
 import 'package:rfqsa_mobile/features/auth/bloc/auth_bloc.dart';
 import 'package:rfqsa_mobile/features/auth/bloc/auth_event.dart';
 import 'package:rfqsa_mobile/features/auth/bloc/auth_state.dart';
+import 'package:rfqsa_mobile/features/auth/models/user_model.dart';
+
+class _DrawerItemConfig {
+  final String title;
+  final IconData icon;
+  final String route;
+  final String? badgeText;
+  final Color? badgeColor;
+  final bool isCta;
+
+  const _DrawerItemConfig({
+    required this.title,
+    required this.icon,
+    required this.route,
+    this.badgeText,
+    this.badgeColor,
+    this.isCta = false,
+  });
+}
 
 /// WebNavigationDrawer: 1:1 Pixel Match for Mobile Web Slide-Out Drawer (components/mobile-nav.tsx)
+/// Fully Enforces Granular RBAC Permissions (Zero-Regression & Strict Parity with Web)
 class WebNavigationDrawer extends StatelessWidget {
   final String activeRoute;
   final String role; // 'client', 'vendor', 'courier'
@@ -25,162 +45,192 @@ class WebNavigationDrawer extends StatelessWidget {
       surfaceTintColor: Colors.transparent,
       width: MediaQuery.of(context).size.width * 0.82,
       child: SafeArea(
-        child: Column(
-          children: [
-            // ── 1. PROFILE & COMPANY HEADER ──
-            _buildProfileHeader(context),
+        child: BlocBuilder<AuthBloc, AuthState>(
+          builder: (context, state) {
+            final user = (state is AuthenticatedState) ? state.user : null;
+            final effectiveRole = (state is AuthenticatedState) ? state.activeRole.toLowerCase() : role.toLowerCase();
 
-            const Divider(color: Color(0xFF1E293B), height: 1),
+            return Column(
+              children: [
+                // ── 1. PROFILE & COMPANY HEADER ──
+                _buildProfileHeader(context, user, effectiveRole),
 
-            // ── 2. SCROLLABLE NAVIGATION LINKS ──
-            Expanded(
-              child: ListView(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-                children: _buildNavLinks(context),
-              ),
-            ),
+                const Divider(color: Color(0xFF1E293B), height: 1),
 
-            const Divider(color: Color(0xFF1E293B), height: 1),
+                // ── 2. SCROLLABLE NAVIGATION LINKS (RBAC GUARDED) ──
+                Expanded(
+                  child: ListView(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+                    children: _buildNavLinks(context, user, effectiveRole),
+                  ),
+                ),
 
-            // ── 3. LOGOUT & FOOTER ──
-            _buildFooter(context),
-          ],
+                const Divider(color: Color(0xFF1E293B), height: 1),
+
+                // ── 3. LOGOUT & FOOTER ──
+                _buildFooter(context),
+              ],
+            );
+          },
         ),
       ),
     );
   }
 
-  Widget _buildProfileHeader(BuildContext context) {
-    return BlocBuilder<AuthBloc, AuthState>(
-      builder: (context, state) {
-        String fullName = 'شركة المشتريات الوطنية';
-        String company = 'مؤسسة مسجلة ومعتمدة';
-        String roleBadge = 'عميل معتمد B2B';
+  Widget _buildProfileHeader(BuildContext context, UserModel? user, String effectiveRole) {
+    String fullName = user?.fullName ?? 'شركة المشتريات الوطنية';
+    String company = user?.companyName ?? 'مؤسسة مسجلة ومعتمدة';
+    
+    // Authoritative role badge resolution
+    String roleBadge;
+    if (user != null && user.roleNameAr != null && user.roleNameAr!.trim().isNotEmpty) {
+      roleBadge = user.roleNameAr!.trim();
+    } else if (user != null && user.roleId != null) {
+      roleBadge = getRoleDisplayTitle(user.roleId, null);
+    } else if (effectiveRole == 'vendor') {
+      roleBadge = 'مورد قطع غيار معتمد 🏢';
+    } else if (effectiveRole == 'courier') {
+      roleBadge = 'مندوب توصيل معتمد 🚚';
+    } else {
+      roleBadge = 'عميل معتمد B2B';
+    }
 
-        if (state is AuthenticatedState) {
-          fullName = state.user.fullName;
-          company = state.user.companyName ?? 'منشأة معتمدة';
-          if (state.activeRole.toLowerCase() == 'vendor') {
-            roleBadge = 'مورد قطع غيار معتمد 🏢';
-          } else if (state.activeRole.toLowerCase() == 'courier') {
-            roleBadge = 'مندوب توصيل معتمد 🚚';
-          }
-        }
-
-        return Container(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  gradient: AppColors.primaryGradient,
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: AppColors.primaryBorder.withOpacity(0.4), width: 1.5),
+    return Container(
+      padding: const EdgeInsets.all(16),
+      child: Row(
+        children: [
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              gradient: AppColors.primaryGradient,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: AppColors.primaryBorder.withOpacity(0.4), width: 1.5),
+            ),
+            child: Center(
+              child: Text(
+                fullName.isNotEmpty ? fullName.substring(0, 1) : 'ر',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w900,
                 ),
-                child: Center(
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  fullName,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w900,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  company,
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.6),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w500,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 4),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
+                  decoration: BoxDecoration(
+                    color: AppColors.emeraldSurface.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: AppColors.emerald.withOpacity(0.4)),
+                  ),
                   child: Text(
-                    fullName.isNotEmpty ? fullName.substring(0, 1) : 'ر',
+                    roleBadge,
                     style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 20,
-                      fontWeight: FontWeight.w900,
+                      color: AppColors.emerald,
+                      fontSize: 9.5,
+                      fontWeight: FontWeight.w800,
                     ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      fullName,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w900,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      company,
-                      style: TextStyle(
-                        color: Colors.white.withOpacity(0.6),
-                        fontSize: 11,
-                        fontWeight: FontWeight.w500,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 4),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: AppColors.emeraldSurface.withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(color: AppColors.emerald.withOpacity(0.4)),
-                      ),
-                      child: Text(
-                        roleBadge,
-                        style: const TextStyle(
-                          color: AppColors.emerald,
-                          fontSize: 9.5,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
+              ],
+            ),
           ),
-        );
-      },
+        ],
+      ),
     );
   }
 
-  List<Widget> _buildNavLinks(BuildContext context) {
-    if (role == 'vendor') {
-      return [
-        _buildItem(context, 'نظرة عامة', Icons.dashboard_rounded, AppRouter.vendorHome),
-        _buildItem(context, 'رادار الطلبات الذكي', Icons.bolt_rounded, AppRouter.vendorRadar, badgeText: 'رادار حي ⚡', badgeColor: AppColors.amber),
-        _buildItem(context, 'الطلبات والمبيعات', Icons.shopping_bag_rounded, AppRouter.vendorOrders),
-        _buildItem(context, 'الفواتير الضريبية', Icons.receipt_long_rounded, AppRouter.vendorInvoices),
-        _buildItem(context, 'المحفظة والأرباح', Icons.account_balance_wallet_rounded, AppRouter.wallet),
-        _buildItem(context, 'تخصصات قطع الغيار', Icons.category_rounded, AppRouter.vendorSpecializations),
-        _buildItem(context, 'الملف التجاري', Icons.person_rounded, AppRouter.profile),
-        _buildItem(context, 'فريق العمل والأدوار', Icons.verified_user_rounded, AppRouter.vendorRoles),
-        _buildItem(context, 'الدعم والمساعدة', Icons.support_agent_rounded, AppRouter.vendorSupport),
-        _buildItem(context, 'إعدادات العضوية والفرع', Icons.settings_rounded, AppRouter.vendorSettings, badgeText: '⚙️', badgeColor: AppColors.primary),
+  List<Widget> _buildNavLinks(BuildContext context, UserModel? user, String effectiveRole) {
+    List<_DrawerItemConfig> candidateItems = [];
+
+    if (effectiveRole == 'vendor') {
+      candidateItems = const [
+        _DrawerItemConfig(title: 'نظرة عامة', icon: Icons.dashboard_rounded, route: AppRouter.vendorHome),
+        _DrawerItemConfig(title: 'رادار الطلبات الذكي', icon: Icons.bolt_rounded, route: AppRouter.vendorRadar, badgeText: 'رادار حي ⚡', badgeColor: AppColors.amber),
+        _DrawerItemConfig(title: 'الطلبات والمبيعات', icon: Icons.shopping_bag_rounded, route: AppRouter.vendorOrders),
+        _DrawerItemConfig(title: 'الفواتير الضريبية', icon: Icons.receipt_long_rounded, route: AppRouter.vendorInvoices),
+        _DrawerItemConfig(title: 'المحفظة والأرباح', icon: Icons.account_balance_wallet_rounded, route: AppRouter.wallet),
+        _DrawerItemConfig(title: 'تخصصات قطع الغيار', icon: Icons.category_rounded, route: AppRouter.vendorSpecializations),
+        _DrawerItemConfig(title: 'الملف التجاري', icon: Icons.person_rounded, route: AppRouter.profile),
+        _DrawerItemConfig(title: 'فريق العمل والأدوار', icon: Icons.verified_user_rounded, route: AppRouter.vendorRoles),
+        _DrawerItemConfig(title: 'الدعم والمساعدة', icon: Icons.support_agent_rounded, route: AppRouter.vendorSupport),
+        _DrawerItemConfig(title: 'إعدادات العضوية والفرع', icon: Icons.settings_rounded, route: AppRouter.vendorSettings, badgeText: '⚙️', badgeColor: AppColors.primary),
       ];
-    } else if (role == 'courier') {
-      return [
-        _buildItem(context, 'لوحة مهام التوصيل', Icons.dashboard_rounded, AppRouter.courierHome),
-        _buildItem(context, 'المهام والشحنات الميدانية', Icons.local_shipping_rounded, AppRouter.courierOrders),
-        _buildItem(context, 'سجل الأرباح والمحفظة', Icons.account_balance_wallet_rounded, AppRouter.wallet),
-        _buildItem(context, 'الملف الشخصي للمندوب', Icons.person_rounded, AppRouter.profile),
-        _buildItem(context, 'الدعم والمساعدة', Icons.support_agent_rounded, AppRouter.courierSupport),
+    } else if (effectiveRole == 'courier') {
+      candidateItems = const [
+        _DrawerItemConfig(title: 'لوحة مهام التوصيل', icon: Icons.dashboard_rounded, route: AppRouter.courierHome),
+        _DrawerItemConfig(title: 'المهام والشحنات الميدانية', icon: Icons.local_shipping_rounded, route: AppRouter.courierOrders),
+        _DrawerItemConfig(title: 'سجل الأرباح والمحفظة', icon: Icons.account_balance_wallet_rounded, route: AppRouter.wallet),
+        _DrawerItemConfig(title: 'الملف الشخصي للمندوب', icon: Icons.person_rounded, route: AppRouter.profile),
+        _DrawerItemConfig(title: 'الدعم والمساعدة', icon: Icons.support_agent_rounded, route: AppRouter.courierSupport),
       ];
     } else {
       // Default: Client
-      return [
-        _buildItem(context, 'نظرة عامة', Icons.dashboard_rounded, AppRouter.clientHome),
-        _buildItem(context, 'طلب عرض سعر جديد', Icons.add_circle_outline_rounded, AppRouter.clientCreateRfq, isCta: true),
-        _buildItem(context, 'خريطة الموردين المعتمدين', Icons.storefront_rounded, AppRouter.clientVendorsMap, badgeText: 'خريطة 🗺️', badgeColor: AppColors.primary),
-        _buildItem(context, 'إدارة المركبات (المرآب)', Icons.directions_car_rounded, AppRouter.clientGarage, badgeText: 'جديد 🚘', badgeColor: AppColors.emerald),
-        _buildItem(context, 'إدارة الطلبات والصفقات', Icons.shopping_bag_rounded, AppRouter.clientOrders),
-        _buildItem(context, 'الفواتير الضريبية ZATCA', Icons.receipt_long_rounded, AppRouter.clientInvoices),
-        _buildItem(context, 'المحفظة والرصيد', Icons.account_balance_wallet_rounded, AppRouter.wallet),
-        _buildItem(context, 'الملف المؤسسي', Icons.business_rounded, AppRouter.profile),
-        _buildItem(context, 'فريق العمل والصلاحيات', Icons.shield_rounded, AppRouter.clientRoles),
-        _buildItem(context, 'الدعم والمساعدة', Icons.support_agent_rounded, AppRouter.clientSupport),
-        _buildItem(context, 'إعدادات العضوية والمنشأة', Icons.settings_rounded, AppRouter.clientSettings, badgeText: '⚙️', badgeColor: AppColors.primary),
+      candidateItems = const [
+        _DrawerItemConfig(title: 'نظرة عامة', icon: Icons.dashboard_rounded, route: AppRouter.clientHome),
+        _DrawerItemConfig(title: 'طلب عرض سعر جديد', icon: Icons.add_circle_outline_rounded, route: AppRouter.clientCreateRfq, isCta: true),
+        _DrawerItemConfig(title: 'خريطة الموردين المعتمدين', icon: Icons.storefront_rounded, route: AppRouter.clientVendorsMap, badgeText: 'خريطة 🗺️', badgeColor: AppColors.primary),
+        _DrawerItemConfig(title: 'إدارة المركبات (المرآب)', icon: Icons.directions_car_rounded, route: AppRouter.clientGarage, badgeText: 'جديد 🚘', badgeColor: AppColors.emerald),
+        _DrawerItemConfig(title: 'إدارة الطلبات والصفقات', icon: Icons.shopping_bag_rounded, route: AppRouter.clientOrders),
+        _DrawerItemConfig(title: 'الفواتير الضريبية ZATCA', icon: Icons.receipt_long_rounded, route: AppRouter.clientInvoices),
+        _DrawerItemConfig(title: 'المحفظة والرصيد', icon: Icons.account_balance_wallet_rounded, route: AppRouter.wallet),
+        _DrawerItemConfig(title: 'الملف المؤسسي', icon: Icons.business_rounded, route: AppRouter.profile),
+        _DrawerItemConfig(title: 'فريق العمل والصلاحيات', icon: Icons.shield_rounded, route: AppRouter.clientRoles),
+        _DrawerItemConfig(title: 'الدعم والمساعدة', icon: Icons.support_agent_rounded, route: AppRouter.clientSupport),
+        _DrawerItemConfig(title: 'إعدادات العضوية والمنشأة', icon: Icons.settings_rounded, route: AppRouter.clientSettings, badgeText: '⚙️', badgeColor: AppColors.primary),
       ];
     }
+
+    // Filter items using Granular NavigationGuard
+    final List<Widget> navWidgets = [];
+    for (final item in candidateItems) {
+      if (NavigationGuard.isRouteAllowed(item.route, user)) {
+        navWidgets.add(
+          _buildItem(
+            context,
+            item.title,
+            item.icon,
+            item.route,
+            badgeText: item.badgeText,
+            badgeColor: item.badgeColor,
+            isCta: item.isCta,
+          ),
+        );
+      }
+    }
+
+    return navWidgets;
   }
 
   Widget _buildItem(

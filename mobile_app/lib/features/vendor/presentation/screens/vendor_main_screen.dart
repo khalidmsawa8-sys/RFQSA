@@ -12,6 +12,10 @@ import 'package:rfqsa_mobile/features/shared/presentation/widgets/web_mobile_doc
 import 'package:rfqsa_mobile/features/shared/presentation/widgets/part_details_sheet.dart';
 import 'package:rfqsa_mobile/features/vendor/bloc/vendor_radar_bloc.dart';
 import 'package:rfqsa_mobile/features/client/models/rfq_model.dart';
+import 'package:rfqsa_mobile/core/navigation/navigation_guard.dart';
+import 'package:rfqsa_mobile/features/auth/bloc/auth_bloc.dart';
+import 'package:rfqsa_mobile/features/auth/bloc/auth_state.dart';
+import 'package:rfqsa_mobile/features/auth/models/user_model.dart';
 
 /// Exact 1:1 Parity of Vendor Dashboard (SlideDashboard role="vendor")
 class VendorMainScreen extends StatefulWidget {
@@ -151,6 +155,12 @@ class _VendorMainScreenState extends State<VendorMainScreen> {
   }
 
   Widget _buildVendorDashboardContent(List<RfqModel> rfqs) {
+    final authState = context.watch<AuthBloc>().state;
+    final currentUser = (authState is AuthenticatedState) ? authState.user : null;
+    final canViewRadar = NavigationGuard.isRouteAllowed(AppRouter.vendorRadar, currentUser);
+    final canViewOrders = NavigationGuard.isRouteAllowed(AppRouter.vendorOrders, currentUser);
+    final canViewWallet = NavigationGuard.isRouteAllowed(AppRouter.wallet, currentUser);
+
     final openRfqsCount = rfqs.length;
     final activeOrdersCount = _orders.where((o) => o['status'] != 'completed' && o['status'] != 'cancelled').length;
     final completedSalesCount = _orders.where((o) => o['status'] == 'completed' || o['status'] == 'delivered').length;
@@ -236,9 +246,11 @@ class _VendorMainScreenState extends State<VendorMainScreen> {
                                   borderRadius: BorderRadius.circular(12),
                                   border: Border.all(color: const Color(0xFF10B981).withOpacity(0.4)),
                                 ),
-                                child: const Text(
-                                  'مورد معتمد B2B ⚡',
-                                  style: TextStyle(color: Color(0xFF34D399), fontSize: 9.5, fontWeight: FontWeight.w900),
+                                child: Text(
+                                  currentUser?.roleNameAr.isNotEmpty == true
+                                      ? '${currentUser!.roleNameAr} ⚡'
+                                      : 'مورد معتمد B2B ⚡',
+                                  style: const TextStyle(color: Color(0xFF34D399), fontSize: 9.5, fontWeight: FontWeight.w900),
                                 ),
                               ),
                             ],
@@ -325,16 +337,27 @@ class _VendorMainScreenState extends State<VendorMainScreen> {
               ),
               const SizedBox(width: 8),
               Expanded(
-                child: _buildMetricTile(
-                  label: 'رصيد الأرباح المتاح',
-                  value: '${_walletBalance.toStringAsFixed(0)} ر.س',
-                  trend: 'متاح للتحويل الفوري إلى IBAN',
-                  icon: Icons.account_balance_wallet_outlined,
-                  iconColor: const Color(0xFF7C3AED),
-                  iconBg: const Color(0xFFF5F3FF),
-                  topBorderColor: const Color(0xFF7C3AED),
-                  onTap: () => Navigator.pushNamed(context, AppRouter.wallet),
-                ),
+                child: canViewWallet
+                    ? _buildMetricTile(
+                        label: 'رصيد الأرباح المتاح',
+                        value: '${_walletBalance.toStringAsFixed(0)} ر.س',
+                        trend: 'متاح للتحويل الفوري إلى IBAN',
+                        icon: Icons.account_balance_wallet_outlined,
+                        iconColor: const Color(0xFF7C3AED),
+                        iconBg: const Color(0xFFF5F3FF),
+                        topBorderColor: const Color(0xFF7C3AED),
+                        onTap: () => Navigator.pushNamed(context, AppRouter.wallet),
+                      )
+                    : _buildMetricTile(
+                        label: 'التصنيف المعتمد',
+                        value: 'مورد B2B',
+                        trend: 'سجل تجاري موثق لدى وزارة التجارة',
+                        icon: Icons.verified_rounded,
+                        iconColor: const Color(0xFF10B981),
+                        iconBg: const Color(0xFFD1FAE5),
+                        topBorderColor: const Color(0xFF10B981),
+                        onTap: () => Navigator.pushNamed(context, AppRouter.vendorOrders),
+                      ),
               ),
             ],
           ),

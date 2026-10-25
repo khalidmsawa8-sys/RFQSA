@@ -1,18 +1,39 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_typography.dart';
-import '../../../../core/theme/app_spacing.dart';
+import '../../../../core/routing/app_router.dart';
+import '../../../../core/navigation/navigation_guard.dart';
+import '../../../auth/bloc/auth_bloc.dart';
+import '../../../auth/bloc/auth_state.dart';
+import '../../../auth/models/user_model.dart';
+
+class _DockTabItem {
+  final String label;
+  final IconData icon;
+  final String route;
+  final bool isCta;
+
+  const _DockTabItem({
+    required this.label,
+    required this.icon,
+    required this.route,
+    this.isCta = false,
+  });
+}
 
 class WebMobileDock extends StatelessWidget {
   final String role; // 'client' | 'vendor' | 'courier'
   final int currentIndex;
-  final Function(int index) onTap;
+  final Function(int index)? onTap;
+  final String? currentRoute;
 
   const WebMobileDock({
     Key? key,
     required this.role,
     required this.currentIndex,
-    required this.onTap,
+    this.onTap,
+    this.currentRoute,
   }) : super(key: key);
 
   @override
@@ -50,9 +71,14 @@ class WebMobileDock extends StatelessWidget {
         top: false,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: _buildItems(context, isDark, isClient, isVendor),
+          child: BlocBuilder<AuthBloc, AuthState>(
+            builder: (context, state) {
+              final user = (state is AuthenticatedState) ? state.user : null;
+              return Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: _buildItems(context, isDark, isClient, isVendor, user),
+              );
+            },
           ),
         ),
       ),
@@ -64,42 +90,70 @@ class WebMobileDock extends StatelessWidget {
     bool isDark,
     bool isClient,
     bool isVendor,
+    UserModel? user,
   ) {
+    List<_DockTabItem> candidates = [];
+
     if (isClient) {
-      return [
-        _buildNavItem(0, 'الرئيسية', Icons.dashboard_rounded, isDark),
-        _buildNavItem(1, 'المركبات', Icons.directions_car_rounded, isDark),
-        _buildCtaButton(context, 2, 'طلب جديد'),
-        _buildNavItem(3, 'الطلبات', Icons.shopping_bag_rounded, isDark),
-        _buildNavItem(4, 'الإعدادات', Icons.settings_rounded, isDark),
+      candidates = const [
+        _DockTabItem(label: 'الرئيسية', icon: Icons.dashboard_rounded, route: AppRouter.clientHome),
+        _DockTabItem(label: 'المركبات', icon: Icons.directions_car_rounded, route: AppRouter.clientGarage),
+        _DockTabItem(label: 'طلب جديد', icon: Icons.add_rounded, route: AppRouter.clientCreateRfq, isCta: true),
+        _DockTabItem(label: 'الطلبات', icon: Icons.shopping_bag_rounded, route: AppRouter.clientOrders),
+        _DockTabItem(label: 'الإعدادات', icon: Icons.settings_rounded, route: AppRouter.clientSettings),
       ];
     } else if (isVendor) {
-      return [
-        _buildNavItem(0, 'الرئيسية', Icons.dashboard_rounded, isDark),
-        _buildNavItem(1, 'الرادار', Icons.bolt_rounded, isDark),
-        _buildNavItem(2, 'الطلبات', Icons.shopping_bag_rounded, isDark),
-        _buildNavItem(3, 'الأرباح', Icons.account_balance_wallet_rounded, isDark),
-        _buildNavItem(4, 'الإعدادات', Icons.settings_rounded, isDark),
+      candidates = const [
+        _DockTabItem(label: 'الرئيسية', icon: Icons.dashboard_rounded, route: AppRouter.vendorHome),
+        _DockTabItem(label: 'الرادار', icon: Icons.bolt_rounded, route: AppRouter.vendorRadar),
+        _DockTabItem(label: 'الطلبات', icon: Icons.shopping_bag_rounded, route: AppRouter.vendorOrders),
+        _DockTabItem(label: 'الأرباح', icon: Icons.account_balance_wallet_rounded, route: AppRouter.wallet),
+        _DockTabItem(label: 'الإعدادات', icon: Icons.settings_rounded, route: AppRouter.vendorSettings),
       ];
     } else {
       // Courier
-      return [
-        _buildNavItem(0, 'المهام', Icons.inventory_2_rounded, isDark),
-        _buildNavItem(1, 'البوالص', Icons.receipt_long_rounded, isDark),
-        _buildNavItem(2, 'المحفظة', Icons.account_balance_wallet_rounded, isDark),
-        _buildNavItem(3, 'الملف', Icons.person_rounded, isDark),
-        _buildNavItem(4, 'الدعم', Icons.support_agent_rounded, isDark),
+      candidates = const [
+        _DockTabItem(label: 'المهام', icon: Icons.inventory_2_rounded, route: AppRouter.courierHome),
+        _DockTabItem(label: 'البوالص', icon: Icons.receipt_long_rounded, route: AppRouter.courierOrders),
+        _DockTabItem(label: 'المحفظة', icon: Icons.account_balance_wallet_rounded, route: AppRouter.wallet),
+        _DockTabItem(label: 'الملف', icon: Icons.person_rounded, route: AppRouter.profile),
+        _DockTabItem(label: 'الدعم', icon: Icons.support_agent_rounded, route: AppRouter.courierSupport),
       ];
     }
+
+    final filtered = candidates.where((tab) => NavigationGuard.isRouteAllowed(tab.route, user)).toList();
+
+    return List.generate(filtered.length, (idx) {
+      final tab = filtered[idx];
+      if (tab.isCta) {
+        return _buildCtaButton(context, idx, tab.label, tab.route);
+      }
+      return _buildNavItem(context, idx, tab.label, tab.icon, tab.route, isDark);
+    });
   }
 
-  Widget _buildNavItem(int index, String label, IconData icon, bool isDark) {
-    final isSelected = currentIndex == index;
+  Widget _buildNavItem(
+    BuildContext context,
+    int index,
+    String label,
+    IconData icon,
+    String route,
+    bool isDark,
+  ) {
+    final isSelected = (currentRoute != null && currentRoute == route) || currentIndex == index;
     final activeColor = isDark ? AppColors.emerald500 : const Color(0xFF1B4D3E);
     final inactiveColor = isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B);
 
     return InkWell(
-      onTap: () => onTap(index),
+      onTap: () {
+        if (onTap != null) {
+          onTap!(index);
+        } else {
+          if (currentRoute != route) {
+            Navigator.pushReplacementNamed(context, route);
+          }
+        }
+      },
       borderRadius: BorderRadius.circular(12),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -138,11 +192,17 @@ class WebMobileDock extends StatelessWidget {
     );
   }
 
-  Widget _buildCtaButton(BuildContext context, int index, String label) {
+  Widget _buildCtaButton(BuildContext context, int index, String label, String route) {
     return Transform.translate(
       offset: const Offset(0, -12),
       child: GestureDetector(
-        onTap: () => onTap(index),
+        onTap: () {
+          if (onTap != null) {
+            onTap!(index);
+          } else {
+            Navigator.pushNamed(context, route);
+          }
+        },
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [

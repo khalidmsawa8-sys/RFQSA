@@ -48,14 +48,14 @@ class AppRouter {
 
   static Route<dynamic> generateRoute(
     RouteSettings settings, {
-    required Widget Function(String route, dynamic arguments) screenBuilder,
+    required Widget Function(BuildContext context, String route, dynamic arguments) screenBuilder,
   }) {
     final routeName = settings.name ?? splash;
     final args = settings.arguments;
 
     return MaterialPageRoute(
       settings: settings,
-      builder: (context) => screenBuilder(routeName, args),
+      builder: (context) => screenBuilder(context, routeName, args),
     );
   }
 }

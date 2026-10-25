@@ -14,6 +14,10 @@ import 'package:rfqsa_mobile/features/shared/presentation/widgets/web_mobile_doc
 import 'package:rfqsa_mobile/features/shared/presentation/widgets/part_details_sheet.dart';
 import 'package:rfqsa_mobile/features/client/bloc/client_rfq_bloc.dart';
 import 'package:rfqsa_mobile/features/client/models/rfq_model.dart';
+import 'package:rfqsa_mobile/core/navigation/navigation_guard.dart';
+import 'package:rfqsa_mobile/features/auth/bloc/auth_bloc.dart';
+import 'package:rfqsa_mobile/features/auth/bloc/auth_state.dart';
+import 'package:rfqsa_mobile/features/auth/models/user_model.dart';
 
 const Map<String, String> kStatusArabicLabels = {
   'open': 'جاري البحث',
@@ -192,6 +196,15 @@ class _ClientMainScreenState extends State<ClientMainScreen> {
   }
 
   Widget _buildDashboardContent(List<RfqModel> rfqs) {
+    final authState = context.watch<AuthBloc>().state;
+    final currentUser = (authState is AuthenticatedState) ? authState.user : null;
+    final canCreateRfq = NavigationGuard.isRouteAllowed(AppRouter.clientCreateRfq, currentUser);
+    final canViewGarage = NavigationGuard.isRouteAllowed(AppRouter.clientGarage, currentUser);
+    final canViewInvoices = NavigationGuard.isRouteAllowed(AppRouter.clientInvoices, currentUser);
+    final canViewWallet = NavigationGuard.isRouteAllowed(AppRouter.wallet, currentUser);
+    final canViewVendorsMap = NavigationGuard.isRouteAllowed(AppRouter.clientVendorsMap, currentUser);
+    final canViewOrders = NavigationGuard.isRouteAllowed(AppRouter.clientOrders, currentUser);
+
     final activeRfqs = rfqs.where((r) => r.status != 'accepted' && r.status != 'completed' && r.status != 'closed').length;
     final monthOrders = _liveOrders.length;
     final completedOrders = _liveOrders.where((o) => o['status'] == 'delivered' || o['status'] == 'completed').length;
@@ -281,9 +294,11 @@ class _ClientMainScreenState extends State<ClientMainScreen> {
                                   borderRadius: BorderRadius.circular(12),
                                   border: Border.all(color: const Color(0xFF3B82F6).withOpacity(0.4)),
                                 ),
-                                child: const Text(
-                                  'منشأة عميل معتمدة B2B ⚡',
-                                  style: TextStyle(color: Color(0xFF60A5FA), fontSize: 9.5, fontWeight: FontWeight.w900),
+                                child: Text(
+                                  currentUser?.roleNameAr.isNotEmpty == true
+                                      ? '${currentUser!.roleNameAr} ⚡'
+                                      : 'منشأة عميل معتمدة B2B ⚡',
+                                  style: const TextStyle(color: Color(0xFF60A5FA), fontSize: 9.5, fontWeight: FontWeight.w900),
                                 ),
                               ),
                             ],
@@ -307,9 +322,18 @@ class _ClientMainScreenState extends State<ClientMainScreen> {
 
                 // Hero Action CTA: Create RFQ
                 ElevatedButton.icon(
-                  onPressed: () => Navigator.pushNamed(context, AppRouter.clientCreateRfq),
-                  icon: const Icon(Icons.add_shopping_cart_rounded, size: 20),
-                  label: const Text('+ إنشاء طلب تسعير قطع غيار جديد ⚡', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w900)),
+                  onPressed: () {
+                    if (canCreateRfq) {
+                      Navigator.pushNamed(context, AppRouter.clientCreateRfq);
+                    } else {
+                      Navigator.pushNamed(context, AppRouter.clientOrders);
+                    }
+                  },
+                  icon: Icon(canCreateRfq ? Icons.add_shopping_cart_rounded : Icons.inventory_2_rounded, size: 20),
+                  label: Text(
+                    canCreateRfq ? '+ إنشاء طلب تسعير قطع غيار جديد ⚡' : 'استعراض ومتابعة الطلبات الجارية ⚡',
+                    style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w900),
+                  ),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF2563EB),
                     foregroundColor: Colors.white,
@@ -323,41 +347,104 @@ class _ClientMainScreenState extends State<ClientMainScreen> {
           ),
           const SizedBox(height: 14),
 
-          // ══════════ QUICK ACTIONS DOCK ══════════
-          Row(
-            children: [
-              _buildQuickAction(
-                title: 'طلب جديد',
-                icon: Icons.add_box_rounded,
-                color: const Color(0xFF2563EB),
-                bgColor: const Color(0xFFEFF6FF),
-                onTap: () => Navigator.pushNamed(context, AppRouter.clientCreateRfq),
-              ),
-              const SizedBox(width: 8),
-              _buildQuickAction(
-                title: 'كراج الأسطول',
-                icon: Icons.garage_rounded,
-                color: const Color(0xFF059669),
-                bgColor: const Color(0xFFECFDF5),
-                onTap: () => Navigator.pushNamed(context, AppRouter.clientGarage),
-              ),
-              const SizedBox(width: 8),
-              _buildQuickAction(
-                title: 'فواتير ZATCA',
-                icon: Icons.receipt_long_rounded,
-                color: const Color(0xFFD97706),
-                bgColor: const Color(0xFFFFFBEB),
-                onTap: () => Navigator.pushNamed(context, AppRouter.clientInvoices),
-              ),
-              const SizedBox(width: 8),
-              _buildQuickAction(
-                title: 'المحفظة',
-                icon: Icons.account_balance_wallet_rounded,
-                color: const Color(0xFF7C3AED),
-                bgColor: const Color(0xFFF5F3FF),
-                onTap: () => Navigator.pushNamed(context, AppRouter.wallet),
-              ),
-            ],
+          // ══════════ QUICK ACTIONS DOCK (RBAC Guarded) ══════════
+          Builder(
+            builder: (context) {
+              final List<Widget> quickActions = [];
+
+              if (canCreateRfq) {
+                quickActions.add(
+                  _buildQuickAction(
+                    title: 'طلب جديد',
+                    icon: Icons.add_box_rounded,
+                    color: const Color(0xFF2563EB),
+                    bgColor: const Color(0xFFEFF6FF),
+                    onTap: () => Navigator.pushNamed(context, AppRouter.clientCreateRfq),
+                  ),
+                );
+              }
+
+              if (canViewGarage) {
+                if (quickActions.isNotEmpty) quickActions.add(const SizedBox(width: 8));
+                quickActions.add(
+                  _buildQuickAction(
+                    title: 'كراج الأسطول',
+                    icon: Icons.garage_rounded,
+                    color: const Color(0xFF059669),
+                    bgColor: const Color(0xFFECFDF5),
+                    onTap: () => Navigator.pushNamed(context, AppRouter.clientGarage),
+                  ),
+                );
+              }
+
+              if (canViewInvoices) {
+                if (quickActions.isNotEmpty) quickActions.add(const SizedBox(width: 8));
+                quickActions.add(
+                  _buildQuickAction(
+                    title: 'فواتير ZATCA',
+                    icon: Icons.receipt_long_rounded,
+                    color: const Color(0xFFD97706),
+                    bgColor: const Color(0xFFFFFBEB),
+                    onTap: () => Navigator.pushNamed(context, AppRouter.clientInvoices),
+                  ),
+                );
+              }
+
+              if (canViewWallet) {
+                if (quickActions.isNotEmpty) quickActions.add(const SizedBox(width: 8));
+                quickActions.add(
+                  _buildQuickAction(
+                    title: 'المحفظة',
+                    icon: Icons.account_balance_wallet_rounded,
+                    color: const Color(0xFF7C3AED),
+                    bgColor: const Color(0xFFF5F3FF),
+                    onTap: () => Navigator.pushNamed(context, AppRouter.wallet),
+                  ),
+                );
+              }
+
+              // Fallback actions for technician/restricted members if slots available
+              if (canViewVendorsMap && quickActions.length < 4) {
+                if (quickActions.isNotEmpty) quickActions.add(const SizedBox(width: 8));
+                quickActions.add(
+                  _buildQuickAction(
+                    title: 'الموردين المعتمدين',
+                    icon: Icons.map_rounded,
+                    color: const Color(0xFF0D9488),
+                    bgColor: const Color(0xFFF0FDFA),
+                    onTap: () => Navigator.pushNamed(context, AppRouter.clientVendorsMap),
+                  ),
+                );
+              }
+
+              if (canViewOrders && quickActions.length < 4) {
+                if (quickActions.isNotEmpty) quickActions.add(const SizedBox(width: 8));
+                quickActions.add(
+                  _buildQuickAction(
+                    title: 'تتبع الشحنات',
+                    icon: Icons.local_shipping_rounded,
+                    color: const Color(0xFF0284C7),
+                    bgColor: const Color(0xFFF0F9FF),
+                    onTap: () => Navigator.pushNamed(context, AppRouter.clientOrders),
+                  ),
+                );
+              }
+
+              if (quickActions.length < 4) {
+                if (quickActions.isNotEmpty) quickActions.add(const SizedBox(width: 8));
+                quickActions.add(
+                  _buildQuickAction(
+                    title: 'الدعم والمساعدة',
+                    icon: Icons.support_agent_rounded,
+                    color: const Color(0xFF64748B),
+                    bgColor: const Color(0xFFF8FAFC),
+                    onTap: () => Navigator.pushNamed(context, AppRouter.clientSupport),
+                  ),
+                );
+              }
+
+              return Row(children: quickActions);
+            },
           ),
           const SizedBox(height: 14),
 
@@ -408,16 +495,27 @@ class _ClientMainScreenState extends State<ClientMainScreen> {
               ),
               const SizedBox(width: 8),
               Expanded(
-                child: _buildMetricTile(
-                  label: 'رصيد المحفظة المتاح',
-                  value: '${_walletBalance.toStringAsFixed(0)} ر.س',
-                  trend: 'متاح للدفع الفوري والتجهيز',
-                  icon: Icons.account_balance_wallet_outlined,
-                  iconColor: const Color(0xFF7C3AED),
-                  iconBg: const Color(0xFFF5F3FF),
-                  topBorderColor: const Color(0xFF7C3AED),
-                  onTap: () => Navigator.pushNamed(context, AppRouter.wallet),
-                ),
+                child: canViewWallet
+                    ? _buildMetricTile(
+                        label: 'رصيد المحفظة المتاح',
+                        value: '${_walletBalance.toStringAsFixed(0)} ر.س',
+                        trend: 'متاح للدفع الفوري والتجهيز',
+                        icon: Icons.account_balance_wallet_outlined,
+                        iconColor: const Color(0xFF7C3AED),
+                        iconBg: const Color(0xFFF5F3FF),
+                        topBorderColor: const Color(0xFF7C3AED),
+                        onTap: () => Navigator.pushNamed(context, AppRouter.wallet),
+                      )
+                    : _buildMetricTile(
+                        label: 'حالة الاعتماد المؤسسي',
+                        value: 'موثق B2B',
+                        trend: 'عضوية معتمدة وفق معايير رفق',
+                        icon: Icons.verified_user_rounded,
+                        iconColor: const Color(0xFF059669),
+                        iconBg: const Color(0xFFECFDF5),
+                        topBorderColor: const Color(0xFF059669),
+                        onTap: () => Navigator.pushNamed(context, AppRouter.clientSupport),
+                      ),
               ),
             ],
           ),
