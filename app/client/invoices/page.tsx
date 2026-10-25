@@ -43,7 +43,7 @@ import {
   X,
 } from "lucide-react";
 import { InvoicePDFExport } from "@/components/invoice-pdf-export";
-import { normalizeInvoiceNumber } from "@/lib/invoice-canonical";
+import { normalizeInvoiceNumber, extractCleanOrderNumber } from "@/lib/invoice-canonical";
 import { DateRangeFilter, DateRangeValue } from "@/components/date-range-filter";
 
 /* ── Types ── */
@@ -53,8 +53,15 @@ interface ClientInvoice {
   order_id: string;
   status: string;
   total_amount: number;
+  grand_total?: number;
   tax_amount: number;
   subtotal: number;
+  parts_subtotal?: number;
+  parts_vat?: number;
+  client_taxable_base?: number;
+  is_pickup?: boolean;
+  client_platform_fee?: number;
+  client_platform_fee_percent?: number;
   issued_at: string;
   created_at: string;
   notes: string | null;
@@ -99,6 +106,9 @@ interface ClientInvoice {
   client_profile?: { full_name: string; company_name: string; phone: string; tax_number?: string; commercial_register?: string; national_address?: string } | null;
   vendor_profile?: { full_name: string; company_name: string; phone: string; tax_number?: string; commercial_register?: string; national_address?: string } | null;
   delivery_cost?: number;
+  vat_percent?: number;
+  platform_commission?: number;
+  platform_commission_percent?: number;
 }
 
 const statusConfig: Record<string, { label: string; badge: string; icon: any }> = {
@@ -132,6 +142,13 @@ export default function ClientInvoicesPage() {
   });
   const [selectedInvoice, setSelectedInvoice] = useState<ClientInvoice | null>(null);
   const [isExporting, setIsExporting] = useState(false);
+  const [platformSettings, setPlatformSettings] = useState({
+    vat_percent: 15,
+    platform_commission_percent: 5,
+    client_platform_fee_percent: 5,
+    vat_number: "310987654300003",
+    cr_number: "1010789456",
+  });
 
   // Column Visibility Customization
   const [columns, setColumns] = useState({
@@ -148,6 +165,23 @@ export default function ClientInvoicesPage() {
   const fetchInvoices = async () => {
     setLoading(true);
     try {
+      // 0. Fetch platform dynamic policies
+      try {
+        const sRes = await fetch("/api/v1/settings", { cache: "no-store" });
+        if (sRes.ok) {
+          const sData = await sRes.json();
+          if (sData.success && sData.settings) {
+            setPlatformSettings({
+              vat_percent: Number(sData.settings.vat_percent ?? 15),
+              platform_commission_percent: Number(sData.settings.client_platform_fee_percent ?? sData.settings.platform_commission_percent ?? 5),
+              client_platform_fee_percent: Number(sData.settings.client_platform_fee_percent ?? 5),
+              vat_number: sData.settings.vat_number || "310987654300003",
+              cr_number: sData.settings.cr_number || "1010789456",
+            });
+          }
+        }
+      } catch (e) {}
+
       const {
         data: { user },
       } = await supabase.auth.getUser();
@@ -166,25 +200,48 @@ export default function ClientInvoicesPage() {
         .maybeSingle();
 
       const combinedOrders: any[] = [];
+      const seenOrderKeys = new Set<string>();
       const seenIds = new Set<string>();
 
-      // 1. Fetch live authoritative orders from server API first
+      const registerOrder = (item: any): boolean => {
+        if (!item) return false;
+        const ordId = item.order_id || item.deal_order_id || item.id;
+        const cleanKey = extractCleanOrderNumber(ordId);
+        const rawId = String(item.id || "");
+        const rawOrdId = String(item.order_id || "");
+
+        if (cleanKey && seenOrderKeys.has(cleanKey)) return false;
+        if (rawId && seenIds.has(rawId)) return false;
+        if (rawOrdId && seenIds.has(rawOrdId)) return false;
+
+        if (cleanKey) seenOrderKeys.add(cleanKey);
+        if (rawId) seenIds.add(rawId);
+        if (rawOrdId) seenIds.add(rawOrdId);
+
+        combinedOrders.push(item);
+        return true;
+      };
+
+      // 1. Fetch authoritative tenant-isolated invoices from server API
       try {
-        const res = await fetch("/api/v1/orders", { cache: "no-store" });
+        const res = await fetch(`/api/v1/invoices?role=client&client_id=${encodeURIComponent(user.id)}`, { cache: "no-store" });
         if (res.ok) {
           const data = await res.json();
-          if (data.success && Array.isArray(data.orders)) {
-            data.orders.forEach((o: any) => {
-              if (o && o.id && !seenIds.has(o.id)) {
-                seenIds.add(o.id);
-                combinedOrders.push(o);
-              }
+          if (data.system_settings) {
+            setPlatformSettings((prev) => ({
+              ...prev,
+              ...data.system_settings,
+            }));
+          }
+          if (data.success && Array.isArray(data.invoices)) {
+            data.invoices.forEach((o: any) => {
+              registerOrder(o);
             });
           }
         }
       } catch (e) {}
 
-      // 2. Fetch Orders for this client from Supabase / localStorage
+      // 2. Optional fallback: Fetch Orders for this client from Supabase (only add unindexed orders)
       try {
         const { data: ordersData } = await supabase
           .from("orders")
@@ -216,14 +273,12 @@ export default function ClientInvoicesPage() {
             ),
             deals(id, status)
           `)
+          .eq("client_id", user.id)
           .order("created_at", { ascending: false });
 
         if (ordersData && Array.isArray(ordersData)) {
           ordersData.forEach((o: any) => {
-            if (o && o.id && !seenIds.has(o.id)) {
-              seenIds.add(o.id);
-              combinedOrders.push(o);
-            }
+            registerOrder(o);
           });
         }
       } catch (e) {}
@@ -232,27 +287,31 @@ export default function ClientInvoicesPage() {
       try {
         const { data: dealsData } = await supabase
           .from("deals")
-          .select("*");
+          .select("*")
+          .eq("client_id", user.id);
         if (dealsData && Array.isArray(dealsData)) {
           dealsData.forEach((d: any) => {
             const ord = d.orders || d;
             const ordId = d.order_id || ord.id;
-            if (ordId && !seenIds.has(ordId)) {
-              seenIds.add(ordId);
-              combinedOrders.push({
-                ...ord,
-                deal_id: d.id,
-                deal_order_id: d.order_id,
-              });
-            }
+            const cleanKey = extractCleanOrderNumber(ordId);
+            if (cleanKey && seenOrderKeys.has(cleanKey)) return;
+            if (ordId && seenIds.has(ordId)) return;
+
+            registerOrder({
+              ...ord,
+              deal_id: d.id,
+              deal_order_id: d.order_id,
+            });
           });
         }
       } catch (e) {}
 
-      // Filter for this client (allow all if client-demo-id)
+      // Filter strictly for this client
       const filteredRaw = combinedOrders.filter((ord: any) => {
         if (!ord) return false;
-        if (!ord.client_id || ord.client_id === "client-demo-id" || user.id === "client-demo-id") return true;
+        if (user.id === "client-demo-id") {
+          return ord.client_id === "client-demo-id" || ord.client_id === "client-1" || !ord.client_id;
+        }
         return ord.client_id === user.id || ord.deals?.some((d: any) => d.client_id === user.id);
       });
 
@@ -265,15 +324,81 @@ export default function ClientInvoicesPage() {
 
       // Map into structured ClientInvoice items
       const mapped: ClientInvoice[] = filteredRaw.map((ord: any, idx: number) => {
-        const rfq = ord.rfqs || ord.rfq;
-        const vendor = ord.vendor || ord.profiles;
+        const rfq = ord.rfqs || ord.rfq || ord.deal?.orders?.rfqs || ord.deal?.orders?.rfq || ord.deals?.orders?.rfqs;
+        const vendor = ord.vendor || ord.vendor_profile || ord.profiles;
         const total = Number(ord.total_amount || ord.total_price || 0);
-        const tax = total * (15 / 115);
-        const subtotal = total - tax;
+        const vatPercent = Number(ord.vat_percent ?? platformSettings.vat_percent ?? 15);
+        const vatRate = vatPercent / 100;
+        const settlement = ord.settlement_summary;
+
+        const isPickup = Boolean(
+          ord.is_pickup === true ||
+          ord.delivery_type === "pickup" ||
+          ord.delivery_method === "pickup" ||
+          ord.fulfillment_method === "SELF_PICKUP" ||
+          ord.fulfillment_method === "BRANCH_PICKUP" ||
+          settlement?.isPickup === true
+        );
+
+        const deliveryCost = isPickup
+          ? 0
+          : Number(
+              (ord.delivery_fee && ord.delivery_fee > 0 ? ord.delivery_fee : null) ??
+              (ord.delivery_cost && ord.delivery_cost > 0 ? ord.delivery_cost : null) ??
+              settlement?.deliveryFee ??
+              25
+            );
+
+        const commissionPercent = Number(
+          (platformSettings as any).client_platform_fee_percent ??
+          ord.client_platform_fee_percent ??
+          settlement?.clientFeePercent ??
+          5
+        );
+        const commissionRate = commissionPercent / 100;
+
+        let partsSubtotal = 0;
+        if (settlement?.partsSubtotal && Number(settlement.partsSubtotal) > 0) {
+          partsSubtotal = Number(settlement.partsSubtotal);
+        } else if (ord.parts_subtotal != null && Number(ord.parts_subtotal) > 0 && Number(ord.parts_subtotal) <= (total * 0.95)) {
+          partsSubtotal = Number(ord.parts_subtotal);
+        } else if (Array.isArray(ord.items) && ord.items.length > 0) {
+          partsSubtotal = ord.items.reduce((s: number, it: any) => s + (Number(it.line_total || ((it.unit_price || 0) * (it.quantity || 1))) || 0), 0);
+        } else if (ord.subtotal != null && Number(ord.subtotal) > 0 && Number(ord.subtotal) <= (total * 0.95)) {
+          partsSubtotal = Number(ord.subtotal);
+        } else {
+          const rawTotal = total;
+          const netWithoutDel = Math.max(0, rawTotal - deliveryCost);
+          const factor = 1 + commissionRate + vatRate;
+          partsSubtotal = Math.round((netWithoutDel / factor) * 100) / 100;
+          if (partsSubtotal <= 0) partsSubtotal = Math.round((rawTotal / (1 + vatRate)) * 100) / 100;
+        }
+
+        const commission = settlement?.clientPlatformFee != null
+          ? Number(settlement.clientPlatformFee)
+          : (ord.client_platform_fee != null
+              ? Number(ord.client_platform_fee)
+              : Number(((partsSubtotal * commissionRate)).toFixed(2)));
+
+        const partsVat = Number((partsSubtotal * vatRate).toFixed(2));
+        const taxableBase = Number((partsSubtotal + commission + deliveryCost).toFixed(2));
+        const clientVat = partsVat;
+
+        // Client Grand Total Paid: Parts + VAT on Parts + Platform Fee + Delivery Fee
+        const calculatedGrandTotal = Number((partsSubtotal + partsVat + commission + deliveryCost).toFixed(2));
+        const clientGrandTotal = (settlement?.grandTotal && Number(settlement.grandTotal) > 0)
+          ? Number(settlement.grandTotal)
+          : (total > 0 && Math.abs(total - calculatedGrandTotal) < 0.5 ? total : calculatedGrandTotal);
         const rawOrderId = ord.order_id || ord.deal_order_id || ord.id || `ORD-${idx + 1}`;
         const cleanOrderId = String(rawOrderId).replace(/^ORD-/, "").slice(0, 8).toUpperCase();
         const invNum = normalizeInvoiceNumber(ord.invoice_number, rawOrderId);
         const issuedAt = ord.issued_at || ord.created_at || new Date(Date.now() - (idx * 24 + 12) * 3600 * 1000).toISOString();
+
+        const carMake = ord.vehicle_make && ord.vehicle_make !== "غير محدد" ? ord.vehicle_make : (ord.car_make || rfq?.car_make || ord.deal?.orders?.rfqs?.car_make || ord.vehicle_make || "غير محدد");
+        const carModel = ord.vehicle_model || ord.car_model || rfq?.car_model || ord.deal?.orders?.rfqs?.car_model || "";
+        const carYear = ord.vehicle_year && ord.vehicle_year !== "—" ? ord.vehicle_year : (ord.car_year || rfq?.car_year || ord.deal?.orders?.rfqs?.car_year || "—");
+        const plateNum = ord.plate_number && ord.plate_number !== "—" ? ord.plate_number : (rfq?.plate_number || ord.deal?.orders?.rfqs?.plate_number || "—");
+        const vinNum = ord.vin && ord.vin !== "—" ? ord.vin : (rfq?.vin || ord.deal?.orders?.rfqs?.vin || "—");
 
         // Extract parts description
         let partsText = "قطع غيار معتمدة";
@@ -290,13 +415,11 @@ export default function ClientInvoicesPage() {
           }
         } catch (e) {}
 
-        if (partsText === "قطع غيار معتمدة" && (rfq?.car_make || ord.car_make)) {
-          const make = rfq?.car_make || ord.car_make;
-          const model = rfq?.car_model || ord.car_model || "";
-          partsText = `قطع غيار صيانة معتمدة لـ ${make} ${model}`.trim();
+        if (partsText === "قطع غيار معتمدة" && (carMake !== "غير محدد" || carModel)) {
+          partsText = `قطع غيار صيانة معتمدة لـ ${carMake} ${carModel}`.trim();
         }
 
-        const vendorName = vendor?.company_name || vendor?.full_name || "مؤسسة قطع الغيار المعتمدة";
+        const vendorName = vendor?.company_name || vendor?.full_name || ord.vendor_name || "مؤسسة قطع الغيار المعتمدة";
 
         const mappedPartsItems = parsedItems.map((p: any) => ({
           name: p.partName || p.part_name || p.name || "قطعة غيار معتمدة",
@@ -312,8 +435,8 @@ export default function ClientInvoicesPage() {
                   part_name: p.partName || p.part_name || p.name || "قطعة غيار معتمدة",
                   part_number: p.partNumber || p.part_number || "OEM-GENUINE",
                   quantity: Number(p.quantity || 1),
-                  unit_price: Number(p.unit_price || p.price || Math.round(subtotal / (parsedItems.length || 1))),
-                  line_total: Number(p.line_total || (p.quantity || 1) * (p.unit_price || p.price || Math.round(subtotal / (parsedItems.length || 1)))),
+                  unit_price: Number(p.unit_price || p.price || Math.round(partsSubtotal / (parsedItems.length || 1))),
+                  line_total: Number(p.line_total || (p.quantity || 1) * (p.unit_price || p.price || Math.round(partsSubtotal / (parsedItems.length || 1)))),
                 }))
               : [
                   {
@@ -321,8 +444,8 @@ export default function ClientInvoicesPage() {
                     part_name: partsText,
                     part_number: "OEM-GENUINE",
                     quantity: 1,
-                    unit_price: subtotal,
-                    line_total: subtotal,
+                    unit_price: partsSubtotal,
+                    line_total: partsSubtotal,
                   },
                 ]
             );
@@ -332,37 +455,48 @@ export default function ClientInvoicesPage() {
           invoice_number: invNum,
           order_id: cleanOrderId,
           status: ord.status === "cancelled" ? "cancelled" : "paid",
-          total_amount: total,
-          tax_amount: tax,
-          subtotal: subtotal,
+          total_amount: clientGrandTotal,
+          grand_total: clientGrandTotal,
+          client_taxable_base: taxableBase,
+          subtotal: partsSubtotal,
+          parts_subtotal: partsSubtotal,
+          tax_amount: clientVat,
+          parts_vat: Number((partsSubtotal * vatRate).toFixed(2)),
+          vat_percent: vatPercent,
+          platform_commission: commission,
+          platform_commission_percent: commissionPercent,
+          client_platform_fee: commission,
+          client_platform_fee_percent: commissionPercent,
+          delivery_cost: deliveryCost,
+          is_pickup: isPickup,
           issued_at: issuedAt,
           created_at: ord.created_at || issuedAt,
           notes: ord.notes || null,
           deal_id: ord.deals?.[0]?.id || ord.deal_id || ord.id,
-          vehicle_make: rfq?.car_make || ord.car_make || "غير محدد",
-          vehicle_model: rfq?.car_model || ord.car_model || "",
-          vehicle_year: rfq?.car_year || ord.car_year || "—",
-          plate_number: rfq?.plate_number || ord.plate_number || "—",
-          vin: rfq?.vin || ord.vin || "—",
+          vehicle_make: carMake,
+          vehicle_model: carModel,
+          vehicle_year: carYear,
+          plate_number: plateNum,
+          vin: vinNum,
           parts_summary: partsText,
           parts_items: mappedPartsItems,
           vendor_name: vendorName,
-          vendor_phone: vendor?.phone,
+          vendor_phone: vendor?.phone || ord.vendor_phone,
           deals: {
             order_id: cleanOrderId,
             client_id: user.id,
-            vendor_id: vendor?.id || "vendor-demo-id",
+            vendor_id: vendor?.id || ord.vendor_id || "vendor-demo-id",
             orders: {
               id: ord.id,
               rfq_id: ord.rfq_id || rfq?.id,
               total_price: total,
               parts_description: ord.parts_description,
               rfqs: rfq ? {
-                car_make: rfq.car_make,
-                car_model: rfq.car_model,
-                car_year: rfq.car_year,
-                vin: rfq.vin,
-                plate_number: rfq.plate_number,
+                car_make: carMake,
+                car_model: carModel,
+                car_year: carYear,
+                vin: vinNum,
+                plate_number: plateNum,
                 parts_description: rfq.parts_description,
               } : null,
             },
@@ -387,7 +521,19 @@ export default function ClientInvoicesPage() {
         };
       });
 
-      setInvoices(mapped);
+      // Final strict deduplication by clean order key and invoice number
+      const finalInvoices: ClientInvoice[] = [];
+      const seenFinalKeys = new Set<string>();
+      for (const inv of mapped) {
+        const cleanKey = extractCleanOrderNumber(inv.order_id || inv.id);
+        const invNum = inv.invoice_number;
+        const dedupKey = cleanKey || invNum || inv.id;
+        if (dedupKey && seenFinalKeys.has(dedupKey)) continue;
+        if (dedupKey) seenFinalKeys.add(dedupKey);
+        finalInvoices.push(inv);
+      }
+
+      setInvoices(finalInvoices);
     } catch (e) {
       console.error("Error fetching client invoices:", e);
     } finally {
@@ -452,17 +598,29 @@ export default function ClientInvoicesPage() {
         "رقم اللوحة",
         "تفاصيل الطلب",
         "المورد",
-        "المبلغ قبل الضريبة (ر.س)",
-        "ضريبة القيمة المضافة 15% (ر.س)",
-        "الإجمالي شامل الضريبة (ر.س)",
+        "قيمة قطع الغيار (ر.س)",
+        `عمولة المنصة (${platformSettings.client_platform_fee_percent || 5}%) (ر.س)`,
+        "رسوم التوصيل والشحن (ر.س)",
+        "الوعاء الخاضع للضريبة (ر.س)",
+        `ضريبة القيمة المضافة (${platformSettings.vat_percent}%) (ر.س)`,
+        "الإجمالي شامل الضريبة والعمولة والشحن (ر.س)",
         "تاريخ الإصدار",
         "الحالة",
       ];
 
       const rows = filteredInvoices.map((inv) => {
-        const car = `${inv.vehicle_make} ${inv.vehicle_model} ${inv.vehicle_year}`.trim() || "غير محدد";
-        const plate = inv.plate_number || "-";
+        const carNameParts = [
+          inv.vehicle_make && inv.vehicle_make !== "غير محدد" ? inv.vehicle_make : "",
+          inv.vehicle_model && inv.vehicle_model !== "غير محدد" ? inv.vehicle_model : "",
+          inv.vehicle_year && inv.vehicle_year !== "—" ? inv.vehicle_year : "",
+        ].filter(Boolean);
+        const car = carNameParts.length > 0 ? carNameParts.join(" ") : (inv.vehicle_make || "غير محدد");
+        const plate = inv.plate_number && inv.plate_number !== "—" ? inv.plate_number : "-";
         const statusLabel = statusConfig[inv.status]?.label || inv.status;
+        const commVal = inv.client_platform_fee !== undefined
+          ? inv.client_platform_fee
+          : (inv.platform_commission !== undefined ? inv.platform_commission : Number(((inv.subtotal || 0) * ((inv.client_platform_fee_percent || 1.5) / 100)).toFixed(2)));
+        const taxableVal = inv.client_taxable_base || Number(((inv.subtotal || 0) + commVal + (inv.delivery_cost || 0)).toFixed(2));
 
         return [
           inv.invoice_number,
@@ -472,6 +630,9 @@ export default function ClientInvoicesPage() {
           inv.parts_summary || "قطع غيار معتمدة",
           inv.vendor_name || "مؤسسة قطع الغيار المعتمدة",
           inv.subtotal || 0,
+          commVal,
+          inv.delivery_cost || 0,
+          taxableVal,
           inv.tax_amount || 0,
           inv.total_amount || 0,
           fmtDate(inv.issued_at),
@@ -487,7 +648,7 @@ export default function ClientInvoicesPage() {
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.setAttribute("download", `فواتير_العميل_${new Date().toISOString().slice(0, 10)}.csv`);
+      link.setAttribute("download", `فواتير_العميل_الضريبية_${new Date().toISOString().slice(0, 10)}.csv`);
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -503,9 +664,15 @@ export default function ClientInvoicesPage() {
   const summary = useMemo(() => {
     const totalCount = filteredInvoices.length;
     const grandTotal = filteredInvoices.reduce((s, i) => s + Number(i.total_amount || 0), 0);
+    const subtotalTotal = filteredInvoices.reduce((s, i) => s + Number(i.subtotal || 0), 0);
+    const commissionTotal = filteredInvoices.reduce(
+      (s, i) => s + Number(i.client_platform_fee || i.platform_commission || (Number(i.subtotal || 0) * ((platformSettings.client_platform_fee_percent || 5) / 100))),
+      0
+    );
+    const vatTotal = filteredInvoices.reduce((s, i) => s + Number(i.tax_amount || 0), 0);
     const paidCount = filteredInvoices.filter((i) => i.status === "paid" || i.status === "completed").length;
-    return { totalCount, grandTotal, paidCount };
-  }, [filteredInvoices]);
+    return { totalCount, grandTotal, subtotalTotal, commissionTotal, vatTotal, paidCount };
+  }, [filteredInvoices, platformSettings]);
 
   return (
     <div className="space-y-6 pb-16 text-slate-900 font-sans w-full" dir="rtl">
@@ -543,26 +710,43 @@ export default function ClientInvoicesPage() {
             className="rounded-xl bg-[#0F4C5C] hover:bg-[#0c3c49] text-white text-xs font-bold gap-1.5 shadow-xs h-9"
           >
             <FileSpreadsheet className="w-3.5 h-3.5" />
-            <span>تصدير Excel</span>
+            <span>تصدير Excel شامل</span>
           </Button>
         </div>
       </div>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-2xs">
           <p className="text-xs text-gray-500 font-medium">إجمالي عدد الفواتير</p>
           <p className="text-2xl font-black text-gray-900 mt-1">{summary.totalCount}</p>
         </div>
         <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-2xs">
-          <p className="text-xs text-gray-500 font-medium">مجموع المبالغ المفوترة</p>
-          <p className="text-2xl font-black text-emerald-800 mt-1">
-            {fmt(summary.grandTotal)} <span className="text-xs font-bold text-gray-500">ر.س</span>
+          <p className="text-xs text-gray-500 font-medium">المجموع قبل الضريبة والعمولة</p>
+          <p className="text-2xl font-black text-slate-800 mt-1">
+            {fmt(summary.subtotalTotal)} <span className="text-xs font-bold text-gray-500">ر.س</span>
           </p>
         </div>
-        <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-2xs">
-          <p className="text-xs text-gray-500 font-medium">الفواتير المدفوعة</p>
-          <p className="text-2xl font-black text-teal-800 mt-1">{summary.paidCount}</p>
+        <div className="bg-white p-4 rounded-2xl border border-indigo-100/80 bg-gradient-to-br from-white to-indigo-50/30 shadow-2xs">
+          <p className="text-xs text-indigo-700 font-bold">عمولة المنصة ({platformSettings.client_platform_fee_percent || 5}%)</p>
+          <p className="text-2xl font-black text-indigo-900 mt-1">
+            {fmt(summary.commissionTotal)} <span className="text-xs font-bold text-indigo-400">ر.س</span>
+          </p>
+        </div>
+        <div className="bg-white p-4 rounded-2xl border border-amber-100/80 bg-gradient-to-br from-white to-amber-50/30 shadow-2xs">
+          <p className="text-xs text-amber-800 font-bold">ضريبة القيمة المضافة ({platformSettings.vat_percent}%)</p>
+          <p className="text-2xl font-black text-amber-700 mt-1">
+            {fmt(summary.vatTotal)} <span className="text-xs font-bold text-amber-400">ر.س</span>
+          </p>
+        </div>
+        <div className="bg-white p-4 rounded-2xl border border-emerald-100/80 bg-gradient-to-br from-white to-emerald-50/40 shadow-2xs sm:col-span-2 lg:col-span-4 flex items-center justify-between">
+          <div>
+            <p className="text-xs text-emerald-800 font-black">المجموع الكلي المفوتر (شامل الضريبة والعمولة والشحن)</p>
+            <p className="text-[11px] text-slate-500 mt-0.5">مطابق تماماً لنسب السياسات المالية المعتمدة ZATCA</p>
+          </div>
+          <p className="text-2xl font-black text-emerald-800 font-mono">
+            {fmt(summary.grandTotal)} <span className="text-xs font-bold text-emerald-600">ر.س</span>
+          </p>
         </div>
       </div>
 
@@ -754,7 +938,11 @@ export default function ClientInvoicesPage() {
                             <Car className="w-4 h-4 text-slate-400 shrink-0" />
                             <div>
                               <p className="font-bold text-slate-900 leading-tight">
-                                {inv.vehicle_make} {inv.vehicle_model} {inv.vehicle_year}
+                                {[
+                                  inv.vehicle_make && inv.vehicle_make !== "غير محدد" ? inv.vehicle_make : "",
+                                  inv.vehicle_model && inv.vehicle_model !== "غير محدد" ? inv.vehicle_model : "",
+                                  inv.vehicle_year && inv.vehicle_year !== "—" ? inv.vehicle_year : "",
+                                ].filter(Boolean).join(" ") || inv.vehicle_make}
                               </p>
                               {inv.plate_number && inv.plate_number !== "—" && (
                                 <span className="text-[10px] font-mono text-slate-500">
@@ -772,9 +960,23 @@ export default function ClientInvoicesPage() {
                           <span className="font-mono font-black text-emerald-800 text-sm">
                             {fmt(inv.total_amount)} ر.س
                           </span>
-                          <span className="block text-[10px] text-slate-400">
-                            (الضريبة: {fmt(inv.tax_amount)} ر.س)
-                          </span>
+                          <div className="text-[10px] space-y-0.5 mt-0.5">
+                            <span className="block text-indigo-700 font-bold">
+                              عمولة المنصة ({inv.client_platform_fee_percent || platformSettings.client_platform_fee_percent || 5}%): +{fmt(inv.client_platform_fee || inv.platform_commission || 0)} ر.س
+                            </span>
+                            {inv.is_pickup ? (
+                              <span className="block text-slate-700 font-medium">
+                                استلام من الفرع (0.00 ر.س)
+                              </span>
+                            ) : (
+                              <span className="block text-slate-700 font-medium">
+                                رسوم التوصيل والشحن: +{fmt(inv.delivery_cost || 25)} ر.س
+                              </span>
+                            )}
+                            <span className="block text-amber-700 font-bold">
+                              الضريبة ({inv.vat_percent || platformSettings.vat_percent}%): +{fmt(inv.tax_amount)} ر.س
+                            </span>
+                          </div>
                         </td>
                       )}
 
@@ -840,11 +1042,30 @@ export default function ClientInvoicesPage() {
 
                             {/* Download PDF Component */}
                             <InvoicePDFExport
-                              invoice={inv}
+                              platformSettings={platformSettings}
+                              userRole="client"
+                              invoice={{
+                                ...inv,
+                                parts_subtotal: inv.subtotal,
+                                parts_vat: inv.parts_vat,
+                                client_platform_fee: inv.client_platform_fee || inv.platform_commission,
+                                client_platform_fee_percent: inv.client_platform_fee_percent || inv.platform_commission_percent,
+                                delivery_fee: inv.delivery_cost,
+                                delivery_cost: inv.delivery_cost,
+                                is_pickup: inv.is_pickup,
+                                total_amount: inv.total_amount,
+                                grand_total: inv.total_amount,
+                              }}
                               vendor={inv.vendor_profile || { company_name: inv.vendor_name }}
                               client={inv.client_profile || undefined}
                               order={{
                                 id: inv.order_id,
+                                parts_subtotal: inv.subtotal,
+                                client_platform_fee: inv.client_platform_fee || inv.platform_commission,
+                                client_platform_fee_percent: inv.client_platform_fee_percent || inv.platform_commission_percent,
+                                delivery_fee: inv.delivery_cost,
+                                delivery_cost: inv.delivery_cost,
+                                is_pickup: inv.is_pickup,
                                 car_make: inv.vehicle_make,
                                 car_model: inv.vehicle_model,
                                 car_year: Number(inv.vehicle_year) || 2023,
@@ -940,16 +1161,47 @@ export default function ClientInvoicesPage() {
               {/* Financial Totals */}
               <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 space-y-2">
                 <div className="flex justify-between text-gray-600">
-                  <span>المجموع الفرعي (قبل الضريبة):</span>
+                  <span>قيمة قطع الغيار (المجموع الفرعي):</span>
                   <span className="font-mono font-bold">{fmt(selectedInvoice.subtotal)} ر.س</span>
                 </div>
-                <div className="flex justify-between text-gray-600">
-                  <span>ضريبة القيمة المضافة (15%):</span>
-                  <span className="font-mono font-bold">{fmt(selectedInvoice.tax_amount)} ر.س</span>
+                <div className="flex justify-between text-indigo-700 bg-indigo-50/70 p-2 rounded-lg border border-indigo-100">
+                  <span className="font-bold flex items-center gap-1.5">
+                    <Receipt className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>عمولة المنصة التشغيلية ({selectedInvoice.client_platform_fee_percent || selectedInvoice.platform_commission_percent || platformSettings.client_platform_fee_percent || 1.5}%):</span>
+                  </span>
+                  <span className="font-mono font-black text-indigo-900">
+                    +{fmt(selectedInvoice.client_platform_fee || selectedInvoice.platform_commission || 0)} ر.س
+                  </span>
                 </div>
-                <div className="flex justify-between text-base font-black text-emerald-800 pt-2 border-t border-gray-200">
-                  <span>الإجمالي شامل الضريبة:</span>
-                  <span className="font-mono">{fmt(selectedInvoice.total_amount)} ر.س</span>
+                <div className="flex justify-between text-slate-700 bg-slate-100/60 p-2 rounded-lg border border-slate-200">
+                  <span>رسوم التوصيل والشحن:</span>
+                  <span className="font-mono font-bold">
+                    {selectedInvoice.is_pickup || selectedInvoice.delivery_cost === 0 ? "0.00 ر.س (استلام من الفرع)" : `+${fmt(selectedInvoice.delivery_cost || 0)} ر.س`}
+                  </span>
+                </div>
+                <div className="flex justify-between text-slate-800 bg-slate-100 p-2 rounded-lg font-bold">
+                  <span>الوعاء الخاضع للضريبة (القطع + الرسوم + التوصيل):</span>
+                  <span className="font-mono">{fmt(selectedInvoice.client_taxable_base || ((selectedInvoice.subtotal || 0) + (selectedInvoice.client_platform_fee || selectedInvoice.platform_commission || 0) + (selectedInvoice.delivery_cost || 0)))} ر.س</span>
+                </div>
+                <div className="flex justify-between text-emerald-800 bg-emerald-50/70 p-2 rounded-lg border border-emerald-100">
+                  <span className="font-bold">ضريبة القيمة المضافة ({selectedInvoice.vat_percent || platformSettings.vat_percent}% شامل القطع والعمولة والتوصيل):</span>
+                  <span className="font-mono font-black text-emerald-700">+{fmt(selectedInvoice.tax_amount)} ر.س</span>
+                </div>
+                <div className="flex justify-between text-base font-black text-blue-900 pt-2 border-t border-gray-200 bg-blue-50/50 p-2 rounded-lg">
+                  <span>الإجمالي النهائي المسدد من العميل:</span>
+                  <span className="font-mono font-black text-blue-900">{fmt(selectedInvoice.total_amount)} ر.س</span>
+                </div>
+              </div>
+
+              {/* Platform Credentials */}
+              <div className="bg-blue-50/60 p-3 rounded-xl border border-blue-100 text-[11px] text-blue-900 space-y-1">
+                <p className="font-bold flex items-center gap-1.5">
+                  <ShieldCheck className="w-3.5 h-3.5 text-blue-600" />
+                  <span>بيانات منصة RFQ المعتمدة:</span>
+                </p>
+                <div className="grid grid-cols-2 gap-2 text-slate-600 pt-1 font-mono text-[10px]">
+                  <div>السجل التجاري: <span className="font-bold text-slate-800">{platformSettings.cr_number}</span></div>
+                  <div>الرقم الضريبي: <span className="font-bold text-slate-800">{platformSettings.vat_number}</span></div>
                 </div>
               </div>
 
@@ -970,11 +1222,30 @@ export default function ClientInvoicesPage() {
               {/* Action Button */}
               <div className="pt-2">
                 <InvoicePDFExport
-                  invoice={selectedInvoice}
+                  platformSettings={platformSettings}
+                  userRole="client"
+                  invoice={{
+                    ...selectedInvoice,
+                    parts_subtotal: selectedInvoice.subtotal,
+                    parts_vat: selectedInvoice.parts_vat,
+                    client_platform_fee: selectedInvoice.client_platform_fee || selectedInvoice.platform_commission,
+                    client_platform_fee_percent: selectedInvoice.client_platform_fee_percent || selectedInvoice.platform_commission_percent,
+                    delivery_fee: selectedInvoice.delivery_cost,
+                    delivery_cost: selectedInvoice.delivery_cost,
+                    is_pickup: selectedInvoice.is_pickup,
+                    total_amount: selectedInvoice.total_amount,
+                    grand_total: selectedInvoice.total_amount,
+                  }}
                   vendor={selectedInvoice.vendor_profile || { company_name: selectedInvoice.vendor_name }}
                   client={selectedInvoice.client_profile || undefined}
                   order={{
                     id: selectedInvoice.order_id,
+                    parts_subtotal: selectedInvoice.subtotal,
+                    client_platform_fee: selectedInvoice.client_platform_fee || selectedInvoice.platform_commission,
+                    client_platform_fee_percent: selectedInvoice.client_platform_fee_percent || selectedInvoice.platform_commission_percent,
+                    delivery_fee: selectedInvoice.delivery_cost,
+                    delivery_cost: selectedInvoice.delivery_cost,
+                    is_pickup: selectedInvoice.is_pickup,
                     car_make: selectedInvoice.vehicle_make,
                     car_model: selectedInvoice.vehicle_model,
                     car_year: Number(selectedInvoice.vehicle_year) || 2023,

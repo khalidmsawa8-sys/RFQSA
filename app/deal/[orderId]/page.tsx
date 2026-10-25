@@ -204,24 +204,71 @@ export default async function DealPage({ params }: PageProps) {
   }
 
   // Determine delivery mode: Delivery (توصيل) vs Pickup (استلام من الفرع)
-  const isPickup = Boolean(
-    order?.delivery_method === "pickup" ||
-    order?.delivery_type === "pickup" ||
-    order?.is_pickup === true ||
-    order?.pickup_branch ||
-    order?.pickup_branch_id ||
-    rfq?.delivery_method === "pickup" ||
-    rfq?.delivery_type === "pickup" ||
-    rfq?.is_pickup === true ||
-    rfq?.pickup_branch ||
-    rfq?.pickup_branch_id ||
-    quote?.delivery_method === "pickup" ||
-    String(rfq?.delivery_location || "").includes("فرع") ||
-    String(rfq?.delivery_location || "").includes("استلام") ||
-    String(order?.delivery_location || "").includes("فرع") ||
-    String(order?.delivery_location || "").includes("استلام") ||
-    (Number(quote?.delivery_cost ?? order?.delivery_fee ?? 0) === 0 && (order?.pickup_branch || rfq?.pickup_branch || String(rfq?.delivery_location || "").includes("فرع") || String(rfq?.delivery_location || "").includes("استلام")))
+  let rfqExtra: any = {};
+  if (rfq?.parts_description) {
+    try {
+      const parsed = typeof rfq.parts_description === "string" ? JSON.parse(rfq.parts_description) : rfq.parts_description;
+      if (Array.isArray(parsed) && parsed.length > 0) rfqExtra = parsed[0] || {};
+    } catch {}
+  }
+
+  const locText = String(
+    (order as any)?.rfqs?.delivery_location ||
+    (order as any)?.delivery_location ||
+    (order as any)?.pickup_location ||
+    rfq?.delivery_location ||
+    rfqExtra?.deliveryLocation ||
+    ""
   );
+
+  const hasPickupPhrase =
+    locText.includes("استلام من فرع") ||
+    locText.includes("استلام من الفرع") ||
+    locText.includes("استلام من معرض") ||
+    locText.includes("استلام يدوي") ||
+    locText === "استلام من فرع المورد";
+
+  const fulfillmentMethod =
+    (order as any)?.fulfillment_method ||
+    (order as any)?.fulfillment_type ||
+    (rfq as any)?.fulfillment_method ||
+    rfqExtra?.fulfillmentMethod ||
+    (deal as any)?.fulfillment_method ||
+    (hasPickupPhrase ? "BRANCH_PICKUP" : undefined);
+
+  const deliveryMethod =
+    order?.delivery_method ||
+    order?.delivery_type ||
+    (order as any)?.shipping_method ||
+    rfq?.delivery_method ||
+    rfq?.delivery_type ||
+    rfqExtra?.deliveryMethod ||
+    quote?.delivery_method ||
+    (hasPickupPhrase ? "pickup" : undefined);
+
+  let isPickup = false;
+  const deliveryFeeVal = Number((order as any)?.delivery_fee ?? (order as any)?.delivery_cost ?? (deal as any)?.delivery_fee ?? 0);
+
+  if (
+    fulfillmentMethod === "DELIVERY" ||
+    deliveryMethod === "delivery" ||
+    deliveryMethod === "shipping" ||
+    order?.is_pickup === false ||
+    deliveryFeeVal > 0
+  ) {
+    isPickup = false;
+  } else if (
+    fulfillmentMethod === "BRANCH_PICKUP" ||
+    fulfillmentMethod === "SELF_PICKUP" ||
+    deliveryMethod === "pickup" ||
+    order?.is_pickup === true ||
+    rfq?.is_pickup === true ||
+    order?.pickup_branch ||
+    rfq?.pickup_branch ||
+    hasPickupPhrase
+  ) {
+    isPickup = true;
+  }
 
   /* ─────────────────────────────────────────────────────────────
      2. Extract & Format REAL Items from Quotes / RFQs / Deal Items

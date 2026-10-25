@@ -72,6 +72,12 @@ export interface QuotePDFExportProps {
     created_at?: string;
     issued_at?: string;
   };
+  platformSettings?: {
+    vat_percent?: number;
+    platform_commission_percent?: number;
+    vat_number?: string;
+    cr_number?: string;
+  };
   triggerButton?: React.ReactNode;
 }
 
@@ -99,6 +105,7 @@ export function QuotePDFExport({
   vendor,
   client,
   quote,
+  platformSettings,
   triggerButton,
 }: QuotePDFExportProps) {
   const [busy, setBusy] = useState(false);
@@ -113,6 +120,18 @@ export function QuotePDFExport({
       ? rawQuoteId
       : `QT-${shortId(rawQuoteId)}`;
 
+    const vatPercent = Number(platformSettings?.vat_percent ?? (quote as any)?.vat_percent ?? 15);
+    const VAT_RATE = vatPercent / 100;
+    const commissionPercent = Number(
+      (platformSettings as any)?.client_platform_fee_percent ??
+      platformSettings?.platform_commission_percent ??
+      (quote as any)?.client_platform_fee_percent ??
+      (quote as any)?.platform_commission_percent ??
+      3
+    );
+    const platformCR = platformSettings?.cr_number || "1010789456";
+    const platformVAT = platformSettings?.vat_number || "310987654300003";
+
     // Extract items / parts
     const rawItems = (quote.items && Array.isArray(quote.items) && quote.items.length > 0)
       ? quote.items
@@ -123,8 +142,8 @@ export function QuotePDFExport({
           part_number: rfq?.plate_number ? `لوحة: ${rfq.plate_number}` : "SP-AUTO",
           condition: "أصلي وكالة",
           quantity: 1,
-          unit_price: Number(quote.total_price) ? Number(quote.total_price) / 1.15 : 500,
-          line_total: Number(quote.total_price) ? Number(quote.total_price) / 1.15 : 500,
+          unit_price: Number(quote.total_price) ? (VAT_RATE > 0 ? Number(quote.total_price) / (1 + VAT_RATE) : Number(quote.total_price)) : 500,
+          line_total: Number(quote.total_price) ? (VAT_RATE > 0 ? Number(quote.total_price) / (1 + VAT_RATE) : Number(quote.total_price)) : 500,
         }];
 
     const safeItems: QuoteItem[] = rawItems.map((it: any) => {
@@ -152,12 +171,24 @@ export function QuotePDFExport({
       };
     });
 
-    /* ── Calculations (ZATCA 15% Standard) ── */
-    const VAT_RATE = 0.15;
+    /* ── Calculations (Including Platform Fee) ── */
+    const isPickup = Boolean(
+      rfq.delivery_type === "pickup" ||
+      (rfq as any).delivery_method === "pickup" ||
+      (rfq as any).fulfillment_method === "SELF_PICKUP" ||
+      (rfq as any).fulfillment_method === "BRANCH_PICKUP" ||
+      quote.delivery_type === "pickup" ||
+      (quote as any).delivery_method === "pickup" ||
+      (quote as any).fulfillment_method === "SELF_PICKUP" ||
+      (quote as any).fulfillment_method === "BRANCH_PICKUP"
+    );
     const subtotal = safeItems.reduce((s: number, it: QuoteItem) => s + (Number(it.line_total) || 0), 0);
-    const deliveryFee = Number(quote.delivery_price ?? quote.delivery_cost ?? 0) || 0;
-    const vat = subtotal * VAT_RATE;
-    const grandTotal = Number(quote.total_price) || (subtotal + vat + deliveryFee);
+    const deliveryFee = isPickup ? 0 : (Number(quote.delivery_price ?? quote.delivery_cost ?? 0) || 0);
+    const platformCommission = Number(((subtotal * commissionPercent) / 100).toFixed(2));
+    const taxableBase = Number((subtotal + platformCommission + deliveryFee).toFixed(2));
+    const subtotalBeforeTax = taxableBase;
+    const vat = Number((Math.round(taxableBase * VAT_RATE * 100) / 100).toFixed(2));
+    const grandTotal = Number((taxableBase + vat).toFixed(2));
 
     /* ── Labels & Parties Info ── */
     const safeVendor = vendor || {};
@@ -183,7 +214,6 @@ export function QuotePDFExport({
     const vinNumber = rfq.vin || "مطابق للمواصفات";
 
     /* ── Delivery Method Badge ── */
-    const isPickup = rfq.delivery_type === "pickup" || quote.delivery_type === "pickup" || deliveryFee === 0;
     const deliveryMethodLabel = isPickup ? "استلام مباشر من فرع المورد (بدون رسوم)" : "توصيل سريع بالأسطول المعتمد";
     const deliveryDaysCount = Number(quote.delivery_days ?? 1);
     const deliveryTimelineText = deliveryDaysCount === 0 || isPickup ? "جاهز للتسليم الفوري" : `خلال ${deliveryDaysCount} ${deliveryDaysCount === 1 ? "يوم عمل" : "أيام عمل"}`;
@@ -282,9 +312,11 @@ export function QuotePDFExport({
     gap: 12px;
   }
 
-  .brand-logo-svg {
-    width: 56px;
-    height: 56px;
+  .brand-logo-img {
+    height: 52px;
+    width: auto;
+    max-width: 150px;
+    object-fit: contain;
     flex-shrink: 0;
   }
 
@@ -816,13 +848,8 @@ export function QuotePDFExport({
         
         <!-- Platform Branding (Right) -->
         <div class="brand-block">
-          <!-- RFQ SA Infinity Vector Logo -->
-          <svg class="brand-logo-svg" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <rect width="200" height="200" rx="36" fill="#064E3B"/>
-            <path d="M 50 100 C 50 65, 95 65, 120 100 C 145 135, 190 135, 190 100 C 190 65, 145 65, 120 100 C 95 135, 50 135, 50 100 Z" stroke="#10B981" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
-            <circle cx="65" cy="115" r="10" fill="#34D399"/>
-            <circle cx="135" cy="85" r="10" fill="#F59E0B"/>
-          </svg>
+          <!-- Official RFQ SA Logo -->
+          <img src="https://rfqsa.tech/logo.png" alt="منصة رفق" class="brand-logo-img" />
 
           <div>
             <div class="brand-title">
@@ -830,7 +857,7 @@ export function QuotePDFExport({
               <span class="brand-title-badge">عرض سعر رسمي معتمد</span>
             </div>
             <div class="brand-sub">RFQ SA – The Saudi Automotive B2B Marketplace</div>
-            <div class="brand-meta">سجل تجاري المنصة: 1010892341 &bull; الرقم الضريبي: 310984726100003 &bull; الرياض، المملكة العربية السعودية</div>
+            <div class="brand-meta">سجل تجاري المنصة: ${platformCR} &bull; الرقم الضريبي: ${platformVAT} &bull; الرياض، المملكة العربية السعودية</div>
           </div>
         </div>
 
@@ -888,10 +915,6 @@ export function QuotePDFExport({
           <span>العنوان والفرع:</span>
           <span>${vendorAddress}</span>
         </div>
-        <div class="party-row">
-          <span>الهاتف / التواصل:</span>
-          <span class="font-mono" dir="ltr">${vendorPhone}</span>
-        </div>
       </div>
 
       <!-- Buyer / Client Card -->
@@ -912,10 +935,6 @@ export function QuotePDFExport({
         <div class="party-row">
           <span>العنوان الوطني / المدينة:</span>
           <span>${clientAddress}</span>
-        </div>
-        <div class="party-row">
-          <span>الهاتف / التواصل:</span>
-          <span class="font-mono" dir="ltr">${clientPhone}</span>
         </div>
       </div>
 
@@ -956,7 +975,7 @@ export function QuotePDFExport({
             <th style="width:35px">الكمية</th>
             <th style="width:80px">سعر الوحدة</th>
             <th style="width:80px">الإجمالي (قبل الضريبة)</th>
-            <th style="width:70px">ضريبة (15%)</th>
+            <th style="width:70px">ضريبة (${vatPercent}%)</th>
             <th style="width:85px">الإجمالي (شامل الضريبة)</th>
           </tr>
         </thead>
@@ -986,16 +1005,25 @@ export function QuotePDFExport({
       <!-- Financial Calculation Card -->
       <div class="totals-card">
         <div class="totals-row">
-          <span>الإجمالي الفرعي (قبل الضريبة) / Subtotal:</span>
+          <span>قيمة القطع / Parts Subtotal:</span>
           <span>${fmt(subtotal)} ر.س</span>
         </div>
-        <div class="totals-row">
-          <span>ضريبة القيمة المضافة (15% VAT):</span>
-          <span>${fmt(vat)} ر.س</span>
-        </div>
+        ${commissionPercent > 0 ? `
+        <div class="totals-row" style="color:#4338ca;font-weight:700">
+          <span>رسوم المنصة (${commissionPercent}% Platform Fee):</span>
+          <span style="color:#4338ca">+${fmt(platformCommission)} ر.س</span>
+        </div>` : ""}
         <div class="totals-row">
           <span>رسوم التوصيل والشحن / Delivery Fee:</span>
           <span>${deliveryFee > 0 ? `${fmt(deliveryFee)} ر.س` : '<span style="color:#047857;font-weight:800">مجانية (0.00 ر.س)</span>'}</span>
+        </div>
+        <div class="totals-row" style="background:#f8fafc;font-weight:700">
+          <span>الإجمالي قبل الضريبة / Subtotal Before VAT:</span>
+          <span>${fmt(subtotalBeforeTax)} ر.س</span>
+        </div>
+        <div class="totals-row">
+          <span>ضريبة القيمة المضافة (${vatPercent}% VAT شامل القطع والعمولة والتوصيل):</span>
+          <span>${fmt(vat)} ر.س</span>
         </div>
         <div class="totals-row grand-row">
           <span>المجموع الكلي للعرض / GRAND TOTAL:</span>

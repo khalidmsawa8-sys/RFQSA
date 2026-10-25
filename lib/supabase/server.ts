@@ -1327,7 +1327,17 @@ if (!globalThis.__SHARED_SERVER_VENDOR_BRANCHES__) {
 }
 
 export async function createClient() {
-  const cookieStore = await cookies();
+  let cookieStore: any;
+  try {
+    cookieStore = await cookies();
+  } catch {
+    cookieStore = {
+      get: () => undefined,
+      getAll: () => [],
+      set: () => {},
+      delete: () => {},
+    };
+  }
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL;
   const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? process.env.SUPABASE_ANON_KEY;
@@ -1855,25 +1865,59 @@ export async function createClient() {
             } else {
               const currentUserId = userIdCookie || (sessionCookie === "vendor" ? "vendor-demo-id" : "client-demo-id");
               const currentUserName = decodedUserName || (sessionCookie === "vendor" ? "مؤسسة قطع الغيار المعتمدة" : "شركة المشتريات الوطنية");
+              const allProfiles = (globalThis.__SHARED_SERVER_PROFILES__ && globalThis.__SHARED_SERVER_PROFILES__.length > 0)
+                ? globalThis.__SHARED_SERVER_PROFILES__
+                : loadPersistedProfiles();
 
-              newItems = items.map((it) => ({
-                id: it.id || `${table === "rfqs" ? "RFQ" : table === "quotes" ? "Q" : "ORD"}-${Math.floor(1000 + Math.random() * 9000)}`,
-                created_at: new Date().toISOString(),
-                status: it.status || (table === "quotes" ? "pending" : "open"),
-                quotes: table === "rfqs" ? [] : undefined,
-                client: table === "rfqs" ? { full_name: currentUserName, company_name: currentUserName } : undefined,
-                client_id: currentUserId,
-                profiles: table === "quotes" ? {
-                  id: it.vendor_id || currentUserId,
-                  full_name: currentUserName,
-                  company_name: currentUserName,
-                  phone: "0551122334",
-                  tax_number: "300123456700003",
-                  commercial_register: "1010987654",
-                  national_address: "الرياض - طريق خريص"
-                } : undefined,
-                ...it,
-              }));
+              newItems = items.map((it) => {
+                let quoteVendorProfile = it.profiles;
+                if (table === "quotes") {
+                  const targetVId = it.vendor_id || currentUserId;
+                  const foundVendor = allProfiles.find((p: any) => p.id === targetVId);
+                  if (foundVendor) {
+                    quoteVendorProfile = {
+                      id: foundVendor.id,
+                      full_name: foundVendor.full_name || foundVendor.company_name || "مورد معتمد",
+                      company_name: foundVendor.company_name || foundVendor.full_name || "مورد معتمد",
+                      phone: foundVendor.phone || "0551122334",
+                      city: foundVendor.city || "",
+                      district: foundVendor.district || "",
+                      address: foundVendor.address || "",
+                      tax_number: foundVendor.tax_number || "300123456700003",
+                      commercial_register: foundVendor.commercial_register || "1010987654",
+                      national_address: foundVendor.national_address || foundVendor.address || "الرياض",
+                      ref_code: foundVendor.ref_code || "VND-501",
+                      rating: foundVendor.rating || 5.0,
+                      orders_count: foundVendor.orders_count || 0,
+                      completed_deals: foundVendor.completed_deals || 0,
+                      commitment_rate: foundVendor.commitment_rate || "98%",
+                    };
+                  } else if (!quoteVendorProfile) {
+                    quoteVendorProfile = {
+                      id: targetVId,
+                      full_name: currentUserName,
+                      company_name: currentUserName,
+                      phone: "0551122334",
+                      tax_number: "300123456700003",
+                      commercial_register: "1010987654",
+                      national_address: "الرياض - طريق خريص",
+                      ref_code: "VND-501",
+                    };
+                  }
+                }
+
+                return {
+                  id: it.id || `${table === "rfqs" ? "RFQ" : table === "quotes" ? "Q" : "ORD"}-${Math.floor(1000 + Math.random() * 9000)}`,
+                  created_at: new Date().toISOString(),
+                  status: it.status || (table === "quotes" ? "pending" : "open"),
+                  quotes: table === "rfqs" ? [] : undefined,
+                  client: table === "rfqs" ? { full_name: currentUserName, company_name: currentUserName } : undefined,
+                  client_id: currentUserId,
+                  profiles: table === "quotes" ? quoteVendorProfile : undefined,
+                  ...it,
+                  ...(table === "quotes" ? { profiles: quoteVendorProfile } : {}),
+                };
+              });
 
               if (table === "rfqs") {
                 const current = globalThis.__SHARED_SERVER_RFQS__ || [];
@@ -1888,7 +1932,9 @@ export async function createClient() {
                 globalThis.__SHARED_SERVER_NOTIFICATIONS__ = [...newItems, ...current];
                 savePersistedNotifications(globalThis.__SHARED_SERVER_NOTIFICATIONS__);
               } else if (table === "quotes") {
-                const current = globalThis.__SHARED_SERVER_QUOTES__ || [];
+                const current = (globalThis.__SHARED_SERVER_QUOTES__ && globalThis.__SHARED_SERVER_QUOTES__.length > 0)
+                  ? globalThis.__SHARED_SERVER_QUOTES__
+                  : loadPersistedQuotes();
                 const targetRfqId = newItems[0]?.rfq_id;
                 const targetVendorId = newItems[0]?.vendor_id;
 
@@ -1897,8 +1943,11 @@ export async function createClient() {
                 globalThis.__SHARED_SERVER_QUOTES__ = [...newItems, ...filteredOld];
                 savePersistedQuotes(globalThis.__SHARED_SERVER_QUOTES__);
 
-                if (targetRfqId && globalThis.__SHARED_SERVER_RFQS__) {
-                  globalThis.__SHARED_SERVER_RFQS__ = globalThis.__SHARED_SERVER_RFQS__.map((r: any) => {
+                if (targetRfqId) {
+                  const currentRfqs = (globalThis.__SHARED_SERVER_RFQS__ && globalThis.__SHARED_SERVER_RFQS__.length > 0)
+                    ? globalThis.__SHARED_SERVER_RFQS__
+                    : loadPersistedRFQs();
+                  globalThis.__SHARED_SERVER_RFQS__ = currentRfqs.map((r: any) => {
                     if (r.id === targetRfqId) {
                       const existingQuotes = (Array.isArray(r.quotes) ? r.quotes : []).filter((q: any) => q.vendor_id !== targetVendorId);
                       return { ...r, status: "quoted", quotes: [...newItems, ...existingQuotes] };
@@ -2182,11 +2231,62 @@ export async function createClient() {
               });
             }
 
+            if (table === "quotes") {
+              const allProfiles = (globalThis.__SHARED_SERVER_PROFILES__ && globalThis.__SHARED_SERVER_PROFILES__.length > 0 ? globalThis.__SHARED_SERVER_PROFILES__ : loadPersistedProfiles());
+              list = list.map((q: any) => {
+                const matchedVendor = allProfiles.find((p: any) => p.id === q.vendor_id);
+                const vendorObj = matchedVendor ? {
+                  id: matchedVendor.id,
+                  full_name: matchedVendor.full_name || matchedVendor.company_name || "مورد معتمد",
+                  company_name: matchedVendor.company_name || matchedVendor.full_name || "مورد معتمد",
+                  phone: matchedVendor.phone || q.profiles?.phone || "0551122334",
+                  city: matchedVendor.city || "",
+                  district: matchedVendor.district || "",
+                  address: matchedVendor.address || "",
+                  tax_number: matchedVendor.tax_number || q.profiles?.tax_number || "300123456700003",
+                  commercial_register: matchedVendor.commercial_register || q.profiles?.commercial_register || "1010987654",
+                  national_address: matchedVendor.national_address || matchedVendor.address || q.profiles?.national_address || "الرياض",
+                  ref_code: matchedVendor.ref_code || q.profiles?.ref_code || "VND-501",
+                  rating: matchedVendor.rating || 5.0,
+                  orders_count: matchedVendor.orders_count || 0,
+                  completed_deals: matchedVendor.completed_deals || 0,
+                  commitment_rate: matchedVendor.commitment_rate || "98%",
+                } : (q.profiles || { full_name: "مورد معتمد", company_name: "مورد معتمد" });
+
+                return {
+                  ...q,
+                  profiles: vendorObj,
+                };
+              });
+            }
+
             if (table === "rfqs") {
               const allQuotes = (globalThis.__SHARED_SERVER_QUOTES__ && globalThis.__SHARED_SERVER_QUOTES__.length > 0 ? globalThis.__SHARED_SERVER_QUOTES__ : loadPersistedQuotes());
               const allProfiles = (globalThis.__SHARED_SERVER_PROFILES__ && globalThis.__SHARED_SERVER_PROFILES__.length > 0 ? globalThis.__SHARED_SERVER_PROFILES__ : loadPersistedProfiles());
               list = list.map(r => {
-                const rQuotes = allQuotes.filter(q => q.rfq_id === r.id);
+                const rQuotes = allQuotes.filter(q => q.rfq_id === r.id).map((q: any) => {
+                  const matchedVendor = allProfiles.find((p: any) => p.id === q.vendor_id);
+                  if (matchedVendor) {
+                    return {
+                      ...q,
+                      profiles: {
+                        id: matchedVendor.id,
+                        full_name: matchedVendor.full_name || matchedVendor.company_name || "مورد معتمد",
+                        company_name: matchedVendor.company_name || matchedVendor.full_name || "مورد معتمد",
+                        phone: matchedVendor.phone || q.profiles?.phone || "",
+                        city: matchedVendor.city || "",
+                        district: matchedVendor.district || "",
+                        address: matchedVendor.address || "",
+                        tax_number: matchedVendor.tax_number || q.profiles?.tax_number || "",
+                        commercial_register: matchedVendor.commercial_register || q.profiles?.commercial_register || "",
+                        national_address: matchedVendor.national_address || matchedVendor.address || q.profiles?.national_address || "",
+                        ref_code: matchedVendor.ref_code || q.profiles?.ref_code || "",
+                        rating: matchedVendor.rating || 5.0,
+                      }
+                    };
+                  }
+                  return q;
+                });
                 const matchedProfile = allProfiles.find((p: any) => p.id === r.client_id);
                 const clientObj = matchedProfile ? {
                   full_name: matchedProfile.company_name || matchedProfile.full_name || "شركة المشتريات الوطنية",
@@ -2206,17 +2306,59 @@ export async function createClient() {
 
             if (table === "orders") {
               const allRfqs = (globalThis.__SHARED_SERVER_RFQS__ && globalThis.__SHARED_SERVER_RFQS__.length > 0 ? globalThis.__SHARED_SERVER_RFQS__ : loadPersistedRFQs());
+              const allProfiles = (globalThis.__SHARED_SERVER_PROFILES__ && globalThis.__SHARED_SERVER_PROFILES__.length > 0 ? globalThis.__SHARED_SERVER_PROFILES__ : loadPersistedProfiles());
               list = list.map((o: any) => {
                 const matchedRfq = allRfqs.find((r: any) => r.id === o.rfq_id);
+                const rfqData = o.rfqs || o.rfq || matchedRfq || {};
                 const mergedRfqs = {
-                  ...(matchedRfq || {}),
-                  ...(o.rfqs || {}),
-                  parts_description: o.rfqs?.parts_description || matchedRfq?.parts_description || o.parts_description,
-                  delivery_location: o.rfqs?.delivery_location || matchedRfq?.delivery_location || o.delivery_location,
+                  car_make: rfqData.car_make || o.car_make || "تويوتا",
+                  car_model: rfqData.car_model || o.car_model || "كامري",
+                  car_year: rfqData.car_year || o.car_year || 2023,
+                  plate_number: rfqData.plate_number || o.plate_number || "أ ب ج 1234",
+                  vin: rfqData.vin || o.vin || "—",
+                  parts_description: rfqData.parts_description || o.parts_description || "قطع غيار مركبات معتمدة",
+                  delivery_location: rfqData.delivery_location || o.delivery_location || "الرياض",
                 };
+
+                let vendorObj = o.vendor || o.profiles;
+                if (!vendorObj && o.vendor_id) {
+                  vendorObj = allProfiles.find((p: any) => p.id === o.vendor_id);
+                }
+                if (!vendorObj) {
+                  vendorObj = {
+                    id: o.vendor_id || "vendor-demo-id",
+                    full_name: "مؤسسة قطع الغيار المعتمدة",
+                    company_name: "مؤسسة قطع الغيار المعتمدة",
+                    ref_code: "VND-501",
+                    phone: "0551122334",
+                  };
+                }
+
+                let clientObj = o.client;
+                if (!clientObj && o.client_id) {
+                  clientObj = allProfiles.find((p: any) => p.id === o.client_id);
+                }
+                if (!clientObj) {
+                  clientObj = {
+                    id: o.client_id || "client-demo-id",
+                    full_name: "شركة المشتريات الوطنية",
+                    company_name: "شركة المشتريات الوطنية",
+                    ref_code: "CLI-101",
+                    phone: "0501234567",
+                  };
+                }
+
+                const rawTotal = Number(o.total_price ?? o.total_amount ?? 0);
+                const cleanTotal = Math.round(rawTotal * 100) / 100;
+
                 return {
                   ...o,
+                  total_price: cleanTotal,
+                  total_amount: cleanTotal,
+                  rfq: mergedRfqs,
                   rfqs: mergedRfqs,
+                  vendor: vendorObj,
+                  client: clientObj,
                   parts_description: o.parts_description || mergedRfqs.parts_description,
                 };
               });

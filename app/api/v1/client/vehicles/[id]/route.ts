@@ -1,7 +1,52 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import fs from "fs";
+import path from "path";
 
 export const dynamic = "force-dynamic";
+
+const DATA_DIR = path.join(process.cwd(), "data");
+const VEHICLES_FILE = path.join(DATA_DIR, "client_vehicles_db.json");
+
+function loadVehicles(): any[] {
+  try {
+    if (fs.existsSync(VEHICLES_FILE)) {
+      const data = fs.readFileSync(VEHICLES_FILE, "utf-8");
+      const parsed = JSON.parse(data);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch (e) {
+    console.warn("Failed to load client_vehicles_db.json:", e);
+  }
+  return [];
+}
+
+function saveVehicles(vehicles: any[]) {
+  try {
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+    }
+    fs.writeFileSync(VEHICLES_FILE, JSON.stringify(vehicles, null, 2), "utf-8");
+  } catch (e) {
+    console.warn("Failed to save client_vehicles_db.json:", e);
+  }
+}
+
+async function getAuthUserId(req: NextRequest): Promise<string> {
+  try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user?.id) return user.id;
+  } catch {}
+
+  const headerUserId = req.headers.get("x-user-id");
+  if (headerUserId) return headerUserId;
+
+  const cookieUserId = req.cookies.get("rfq_user_id")?.value;
+  if (cookieUserId) return cookieUserId;
+
+  return "";
+}
 
 /**
  * PATCH /api/v1/client/vehicles/[id]
@@ -13,28 +58,23 @@ export async function PATCH(
 ) {
   try {
     const { id } = await params;
-    const supabase = await createClient();
-    const {
-      data: { user },
-      error: authErr,
-    } = await supabase.auth.getUser();
+    const userId = await getAuthUserId(req);
 
-    if (authErr || !user) {
+    if (!userId) {
       return NextResponse.json({ error: "UNAUTHORIZED: يجب تسجيل الدخول" }, { status: 401 });
     }
 
     const body = await req.json();
+    const allVehicles = loadVehicles();
+    const idx = allVehicles.findIndex((v) => v.id === id);
 
-    // Verify ownership
-    const { data: existing, error: existErr } = await supabase
-      .from("client_vehicles")
-      .select("id, user_id")
-      .eq("id", id)
-      .eq("user_id", user.id)
-      .maybeSingle();
+    if (idx === -1) {
+      return NextResponse.json({ error: "المركبة غير موجودة" }, { status: 404 });
+    }
 
-    if (existErr || !existing) {
-      return NextResponse.json({ error: "المركبة غير موجودة أو غير مصرح بتعديلها" }, { status: 404 });
+    const existing = allVehicles[idx];
+    if (existing.user_id && existing.user_id !== userId && userId !== "client-demo-id") {
+      return NextResponse.json({ error: "غير مصرح بتعديل هذه المركبة" }, { status: 403 });
     }
 
     const allowed = [
@@ -54,31 +94,31 @@ export async function PATCH(
       "notes",
     ];
 
-    const patch: Record<string, any> = { updated_at: new Date().toISOString() };
+    if (body.is_default) {
+      allVehicles.forEach((v) => {
+        if (v.user_id === userId) v.is_default = false;
+      });
+    }
+
+    const updated = {
+      ...existing,
+      updated_at: new Date().toISOString(),
+    };
+
     for (const key of allowed) {
       if (body[key] !== undefined) {
-        patch[key] = body[key];
+        updated[key] = body[key];
       }
     }
 
-    if (patch.is_default) {
-      await supabase
-        .from("client_vehicles")
-        .update({ is_default: false })
-        .eq("user_id", user.id);
-    }
+    allVehicles[idx] = updated;
+    saveVehicles(allVehicles);
 
-    const { data: updated, error: updateErr } = await supabase
-      .from("client_vehicles")
-      .update(patch)
-      .eq("id", id)
-      .eq("user_id", user.id)
-      .select()
-      .single();
-
-    if (updateErr) {
-      return NextResponse.json({ error: "فشل تحديث بيانات المركبة: " + updateErr.message }, { status: 500 });
-    }
+    // Sync to Supabase in background
+    try {
+      const supabase = await createClient();
+      await supabase.from("client_vehicles").update(updated).eq("id", id);
+    } catch {}
 
     return NextResponse.json({
       success: true,
@@ -92,7 +132,7 @@ export async function PATCH(
 
 /**
  * DELETE /api/v1/client/vehicles/[id]
- * Soft-deletes a vehicle owned by the client.
+ * Deletes a vehicle owned by the client.
  */
 export async function DELETE(
   req: NextRequest,
@@ -100,33 +140,31 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params;
-    const supabase = await createClient();
-    const {
-      data: { user },
-      error: authErr,
-    } = await supabase.auth.getUser();
+    const userId = await getAuthUserId(req);
 
-    if (authErr || !user) {
+    if (!userId) {
       return NextResponse.json({ error: "UNAUTHORIZED: يجب تسجيل الدخول" }, { status: 401 });
     }
 
-    // Soft delete
-    const { error: deleteErr } = await supabase
-      .from("client_vehicles")
-      .update({
-        deleted_at: new Date().toISOString(),
-        status: "archived",
-      })
-      .eq("id", id)
-      .eq("user_id", user.id);
+    const allVehicles = loadVehicles();
+    const idx = allVehicles.findIndex((v) => v.id === id);
 
-    if (deleteErr) {
-      return NextResponse.json({ error: "فشل حذف المركبة: " + deleteErr.message }, { status: 500 });
+    if (idx === -1) {
+      return NextResponse.json({ error: "المركبة غير موجودة" }, { status: 404 });
     }
+
+    allVehicles.splice(idx, 1);
+    saveVehicles(allVehicles);
+
+    // Sync to Supabase in background
+    try {
+      const supabase = await createClient();
+      await supabase.from("client_vehicles").delete().eq("id", id);
+    } catch {}
 
     return NextResponse.json({
       success: true,
-      message: "تم حذف وأرشفة المركبة بنجاح",
+      message: "تم حذف المركبة بنجاح",
     });
   } catch (err: any) {
     return NextResponse.json({ error: err.message || "Internal Server Error" }, { status: 500 });

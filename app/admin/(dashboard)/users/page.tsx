@@ -469,13 +469,23 @@ export default function AdminUsersPage() {
                       {/* Name & Company */}
                       {visibleColumns.name_company && (
                         <td className="py-2.5 px-2.5">
-                          <p className="font-black text-slate-900 text-[11px] truncate max-w-[130px] sm:max-w-[170px]" title={p.full_name}>
-                            {p.full_name || "—"}
-                          </p>
-                          {p.company_name && (
-                            <p className="text-[10px] text-slate-400 font-medium truncate max-w-[130px] sm:max-w-[170px]" title={p.company_name}>
-                              {p.company_name}
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <p className="font-black text-slate-900 text-[11px] truncate max-w-[130px] sm:max-w-[170px]" title={p.full_name}>
+                              {p.full_name || "—"}
                             </p>
+                            {p.role === "vendor" && p.role_id && p.role_id !== "vendor_owner" && (
+                              <span className="text-[8px] font-bold px-1.5 py-0.2 rounded bg-indigo-50 text-indigo-700 border border-indigo-200 shrink-0">
+                                عضو فريق
+                              </span>
+                            )}
+                          </div>
+                          {p.company_name ? (
+                            <div className="flex items-center gap-1 mt-0.5 text-[10px] text-slate-600 font-medium truncate max-w-[140px] sm:max-w-[180px]" title={`المنشأة: ${p.company_name}`}>
+                              <Building2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                              <span className="truncate font-bold text-slate-700">{p.company_name}</span>
+                            </div>
+                          ) : (
+                            <span className="text-[10px] text-slate-300 block">—</span>
                           )}
                         </td>
                       )}
@@ -521,14 +531,14 @@ export default function AdminUsersPage() {
                           ) : p.role === "vendor" ? (
                             <div className="flex flex-col items-center gap-0.5">
                               <span className="inline-flex items-center text-[9px] px-1.5 py-0.5 rounded-md font-black border bg-emerald-50 text-emerald-700 border-emerald-200">
-                                مورد قطع
+                                {p.role_id && p.role_id !== "vendor_owner" ? "مورد (فريق عمل)" : "مورد قطع"}
                               </span>
                               {p.custom_role?.name_ar ? (
                                 <span className="text-[9px] text-emerald-700 font-bold">
                                   {p.custom_role.name_ar}
                                 </span>
                               ) : p.role_id ? (
-                                <span className="text-[9px] text-slate-400 font-medium">
+                                <span className="text-[9px] text-slate-500 font-bold">
                                   {ROLE_DISPLAY_NAMES_AR[p.role_id] || p.role_id}
                                 </span>
                               ) : null}

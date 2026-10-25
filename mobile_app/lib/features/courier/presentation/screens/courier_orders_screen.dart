@@ -30,15 +30,17 @@ class _CourierOrdersScreenState extends State<CourierOrdersScreen> {
 
   Future<void> _fetchWaybills() async {
     setState(() => _isLoading = true);
-    final res = await widget.courierRepository.fetchDeliveries();
-    if (res.success && res.data != null) {
-      if (mounted) {
-        setState(() {
-          _deliveries = res.data!.where((d) => !d.isPickupDelivery).toList();
-          _isLoading = false;
-        });
+    try {
+      final res = await widget.courierRepository.fetchDeliveries();
+      if (res.success && res.data != null) {
+        if (mounted) {
+          setState(() {
+            _deliveries = res.data!.where((d) => !d.isPickupDelivery).toList();
+          });
+        }
       }
-    } else {
+    } catch (_) {
+    } finally {
       if (mounted) setState(() => _isLoading = false);
     }
   }

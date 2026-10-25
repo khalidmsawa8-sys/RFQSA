@@ -83,10 +83,18 @@ export default function ClientWalletPage() {
   const fetchWalletData = async () => {
     setLoading(true);
     try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      const clientId = user?.id || "client-demo-id";
+
       // 1. Fetch live authoritative data from server API
-      const res = await fetch("/api/v1/wallet", {
+      const res = await fetch(`/api/v1/wallet?userId=${encodeURIComponent(clientId)}&role=client`, {
         cache: "no-store",
         credentials: "include",
+        headers: {
+          "x-user-id": clientId,
+        },
       });
       const data = await res.json();
 
@@ -124,10 +132,6 @@ export default function ClientWalletPage() {
       }
 
       // Fallback if API returned unsuccessful
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
       if (!user) {
         setTransactions([]);
         setCurrentBalance(0);

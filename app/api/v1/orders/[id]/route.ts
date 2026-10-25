@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDeterministicOrderOtp } from "@/lib/delivery-state-machine";
 import { normalizeInvoiceNumber } from "@/lib/invoice-canonical";
+import { computeOrderDistributionBreakdown } from "@/lib/wallet-distribution";
 import fs from "fs";
 import path from "path";
 
@@ -146,29 +147,38 @@ export async function GET(
       matchedRfq?.items ||
       [];
 
-    const deliveryFee = Number(
-      orderObj.delivery_fee ??
-      matchedQuote?.delivery_fee ??
-      (delivery?.delivery_fee || 50.0)
-    );
+    const fulfillmentMethod = orderObj.fulfillment_method || matchedRfq?.fulfillment_method;
+    const deliveryMethod = orderObj.delivery_method || orderObj.delivery_type || matchedRfq?.delivery_method || matchedQuote?.delivery_method;
 
-    let totalPrice = Number(
-      orderObj.total_price ||
-      orderObj.total_amount ||
-      matchedQuote?.total_price ||
-      0
-    );
-
-    if (totalPrice === 0 && orderItems.length > 0) {
-      const itemsSum = orderItems.reduce(
-        (sum: number, it: any) => sum + Number(it.unit_price || it.price || 0) * Number(it.quantity || 1),
-        0
-      );
-      totalPrice = itemsSum + deliveryFee;
+    let isPickupOrder = false;
+    if (fulfillmentMethod === "DELIVERY" || deliveryMethod === "delivery" || deliveryMethod === "shipping") {
+      isPickupOrder = false;
+    } else if (
+      fulfillmentMethod === "BRANCH_PICKUP" ||
+      fulfillmentMethod === "SELF_PICKUP" ||
+      deliveryMethod === "pickup" ||
+      orderObj.is_pickup === true ||
+      matchedRfq?.is_pickup === true ||
+      orderObj.pickup_branch ||
+      matchedRfq?.pickup_branch
+    ) {
+      isPickupOrder = true;
     }
 
-    const subtotal = Math.max(0, totalPrice - deliveryFee);
-    const taxAmount = (subtotal * 0.15);
+    const breakdown = computeOrderDistributionBreakdown({
+      ...orderObj,
+      items: orderItems,
+      fulfillment_method: fulfillmentMethod,
+      delivery_method: deliveryMethod,
+      is_pickup: isPickupOrder,
+    });
+
+    const deliveryFee = breakdown.deliveryFee;
+    const totalPrice = breakdown.grandTotal;
+    const subtotal = breakdown.partsSubtotal;
+    const taxAmount = breakdown.partsVat;
+    const clientPlatformFee = breakdown.clientPlatformFee;
+    const isPickup = breakdown.isPickup;
 
     // 6. Profiles (Client & Vendor)
     const clientProfile = profiles.find(
@@ -216,9 +226,16 @@ export async function GET(
       total_price: totalPrice,
       total_amount: totalPrice,
       subtotal: subtotal,
+      parts_subtotal: subtotal,
       delivery_fee: deliveryFee,
       tax_amount: taxAmount,
+      parts_vat: taxAmount,
       vat: taxAmount,
+      platform_fee: clientPlatformFee,
+      client_platform_fee: clientPlatformFee,
+      is_pickup: isPickup,
+      settlement_summary: breakdown,
+      breakdown: breakdown,
       currency: "SAR",
       created_at: orderObj.created_at || new Date().toISOString(),
       updated_at: orderObj.updated_at || new Date().toISOString(),

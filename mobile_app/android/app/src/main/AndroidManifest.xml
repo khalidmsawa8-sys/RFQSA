@@ -29,6 +29,22 @@
     <!-- Telephone for direct Vendor/Customer calling -->
     <uses-permission android:name="android.permission.CALL_PHONE" />
 
+    <!-- Queries for url_launcher phone, map, and browser intents -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.DIAL" />
+            <data android:scheme="tel" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="geo" />
+        </intent>
+    </queries>
+
     <application
         android:label="رِفق | RFQSA"
         android:name="${applicationName}"

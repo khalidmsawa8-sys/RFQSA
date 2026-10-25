@@ -25,6 +25,10 @@ class DeliveryTaskModel extends Equatable {
   final List<Map<String, dynamic>> partsItems;
   final String? otpCode;
   final String? podUrl;
+  final int deliveryDays;
+  final String prepTimeText;
+  final DateTime? expectedReadyAt;
+  final String? vendorNotes;
   final DateTime createdAt;
   final DateTime? updatedAt;
 
@@ -51,6 +55,10 @@ class DeliveryTaskModel extends Equatable {
     this.partsItems = const [],
     this.otpCode,
     this.podUrl,
+    this.deliveryDays = 1,
+    this.prepTimeText = 'خلال 24 ساعة (تجهيز فوري)',
+    this.expectedReadyAt,
+    this.vendorNotes,
     required this.createdAt,
     this.updatedAt,
   });
@@ -60,19 +68,68 @@ class DeliveryTaskModel extends Equatable {
     String summary = json['parts_summary']?.toString() ?? '';
     if (summary.isEmpty && json['parts_items'] is List && (json['parts_items'] as List).isNotEmpty) {
       final items = json['parts_items'] as List;
-      summary = items.map((i) => '${i['name'] ?? i['part_name']} (${i['quantity'] ?? 1})').join('، ');
+      summary = items.whereType<Map>().map((i) {
+        final name = i['name'] ?? i['part_name'] ?? 'قطعة';
+        final qty = i['quantity'] ?? 1;
+        return '$name ($qty)';
+      }).join('، ');
     }
     if (summary.isEmpty) {
       summary = json['title']?.toString() ?? 'قطع غيار صيانة معتمدة';
     }
 
-    // Parse parts items
+    // Parse parts items safely
     List<Map<String, dynamic>> itemsList = [];
     if (json['parts_items'] is List) {
-      itemsList = (json['parts_items'] as List)
-          .whereType<Map<String, dynamic>>()
-          .toList();
+      for (final item in (json['parts_items'] as List)) {
+        if (item is Map) {
+          try {
+            itemsList.add(Map<String, dynamic>.from(item));
+          } catch (_) {}
+        }
+      }
     }
+
+    // Safe coordinates parsing
+    double? pickupLat;
+    double? pickupLng;
+    if (json['pickup_coords'] is Map) {
+      pickupLat = double.tryParse(json['pickup_coords']['lat']?.toString() ?? '');
+      pickupLng = double.tryParse(json['pickup_coords']['lng']?.toString() ?? '');
+    }
+    pickupLat ??= (json['pickup_lat'] != null ? double.tryParse(json['pickup_lat'].toString()) : null) ?? 24.7136;
+    pickupLng ??= (json['pickup_lng'] != null ? double.tryParse(json['pickup_lng'].toString()) : null) ?? 46.6753;
+
+    double? dropoffLat;
+    double? dropoffLng;
+    if (json['dropoff_coords'] is Map) {
+      dropoffLat = double.tryParse(json['dropoff_coords']['lat']?.toString() ?? '');
+      dropoffLng = double.tryParse(json['dropoff_coords']['lng']?.toString() ?? '');
+    }
+    dropoffLat ??= (json['dropoff_lat'] != null ? double.tryParse(json['dropoff_lat'].toString()) : null) ?? 24.7236;
+    dropoffLng ??= (json['dropoff_lng'] != null ? double.tryParse(json['dropoff_lng'].toString()) : null) ?? 46.6853;
+
+    // Vendor and Client safe names & phones
+    String? vName = json['vendor_name']?.toString();
+    String? vPhone = json['vendor_phone']?.toString();
+    if (json['vendor'] is Map) {
+      vName ??= json['vendor']['company_name']?.toString() ?? json['vendor']['full_name']?.toString();
+      vPhone ??= json['vendor']['phone']?.toString();
+    }
+    vName ??= 'مؤسسة قطع الغيار المعتمدة';
+    vPhone ??= '0551122334';
+
+    String? cName = json['client_name']?.toString() ?? json['customer_name']?.toString();
+    String? cPhone = json['recipient_phone']?.toString() ??
+        json['recipientPhone']?.toString() ??
+        json['client_phone']?.toString() ??
+        json['customer_phone']?.toString();
+    if (json['client'] is Map) {
+      cName ??= json['client']['company_name']?.toString() ?? json['client']['full_name']?.toString();
+      cPhone ??= json['client']['phone']?.toString();
+    }
+    cName ??= 'أحمد العتيبي';
+    cPhone ??= json['phone']?.toString() ?? '0501234567';
 
     return DeliveryTaskModel(
       id: json['id']?.toString() ?? '',
@@ -84,27 +141,32 @@ class DeliveryTaskModel extends Equatable {
       dropoffLocation: json['dropoff_address']?.toString() ?? json['dropoff_location']?.toString() ?? 'موقع العميل - حي الروضة، الرياض',
       dropoffCity: json['dropoff_city']?.toString() ?? 'الرياض',
       dropoffDistrict: json['dropoff_district']?.toString() ?? 'حي الروضة',
-      vendorName: json['vendor_name']?.toString() ?? json['vendor']?['full_name'] ?? 'مؤسسة قطع الغيار المعتمدة',
-      vendorPhone: json['vendor_phone']?.toString() ?? json['vendor']?['phone'] ?? '0551122334',
-      customerName: json['client_name']?.toString() ?? json['customer_name']?.toString() ?? json['client']?['full_name'] ?? 'أحمد العتيبي',
-      customerPhone: json['client_phone']?.toString() ?? json['customer_phone']?.toString() ?? json['client']?['phone'] ?? '0501234567',
-      pickupLat: json['pickup_coords']?['lat'] != null
-          ? double.tryParse(json['pickup_coords']['lat'].toString())
-          : (json['pickup_lat'] != null ? double.tryParse(json['pickup_lat'].toString()) : 24.7136),
-      pickupLng: json['pickup_coords']?['lng'] != null
-          ? double.tryParse(json['pickup_coords']['lng'].toString())
-          : (json['pickup_lng'] != null ? double.tryParse(json['pickup_lng'].toString()) : 46.6753),
-      dropoffLat: json['dropoff_coords']?['lat'] != null
-          ? double.tryParse(json['dropoff_coords']['lat'].toString())
-          : (json['dropoff_lat'] != null ? double.tryParse(json['dropoff_lat'].toString()) : 24.7236),
-      dropoffLng: json['dropoff_coords']?['lng'] != null
-          ? double.tryParse(json['dropoff_coords']['lng'].toString())
-          : (json['dropoff_lng'] != null ? double.tryParse(json['dropoff_lng'].toString()) : 46.6853),
+      vendorName: vName,
+      vendorPhone: vPhone,
+      customerName: cName,
+      customerPhone: cPhone,
+      pickupLat: pickupLat,
+      pickupLng: pickupLng,
+      dropoffLat: dropoffLat,
+      dropoffLng: dropoffLng,
       deliveryFee: double.tryParse(json['delivery_fee_earned']?.toString() ?? json['delivery_fee']?.toString() ?? '35') ?? 35.0,
       partsSummary: summary,
       partsItems: itemsList,
       otpCode: json['otp_code']?.toString() ?? json['otp']?.toString(),
       podUrl: json['pod_photo_url']?.toString() ?? json['pod_url']?.toString(),
+      deliveryDays: int.tryParse(json['delivery_days']?.toString() ?? '1') ?? 1,
+      prepTimeText: json['prep_time_text']?.toString() ??
+          (int.tryParse(json['delivery_days']?.toString() ?? '1') == 2
+              ? 'خلال 48 ساعة (يومان)'
+              : (int.tryParse(json['delivery_days']?.toString() ?? '1') != null && int.parse(json['delivery_days'].toString()) > 2
+                  ? 'خلال ${json['delivery_days']} أيام عمل'
+                  : 'خلال 24 ساعة (تجهيز فوري)')),
+      expectedReadyAt: json['estimated_ready_at'] != null
+          ? DateTime.tryParse(json['estimated_ready_at'].toString())
+          : (json['expected_ready_at'] != null
+              ? DateTime.tryParse(json['expected_ready_at'].toString())
+              : null),
+      vendorNotes: json['vendor_notes']?.toString() ?? json['notes']?.toString(),
       createdAt: json['created_at'] != null ? DateTime.tryParse(json['created_at'].toString()) ?? DateTime.now() : DateTime.now(),
       updatedAt: json['updated_at'] != null ? DateTime.tryParse(json['updated_at'].toString()) : null,
     );
@@ -117,6 +179,20 @@ class DeliveryTaskModel extends Equatable {
   String get pickupAddress => pickupLocation;
   String get dropoffAddress => dropoffLocation;
   String get clientName => customerName ?? 'العميل المستلم';
+
+  // Vendor Readiness & Timer Helpers
+  bool get isReadyForPickup {
+    if (isPickedUp || isEnRouteDelivery || isArrivedDelivery || isDelivered) return true;
+    if (expectedReadyAt == null) return true;
+    return DateTime.now().isAfter(expectedReadyAt!);
+  }
+
+  Duration get remainingPrepDuration {
+    if (expectedReadyAt == null) return Duration.zero;
+    final now = DateTime.now();
+    if (now.isAfter(expectedReadyAt!)) return Duration.zero;
+    return expectedReadyAt!.difference(now);
+  }
 
   // Status helper properties matching DELIVERY_STATUS_META
   bool get isDelivered => status == 'DELIVERED';

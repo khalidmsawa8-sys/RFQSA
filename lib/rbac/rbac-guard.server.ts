@@ -79,9 +79,13 @@ export async function getVerifiedAuthContext(
     const headerStore = await headers();
     referer = headerStore.get("referer") || headerStore.get("origin") || "";
     adminHeader = headerStore.get("x-admin-request") || headerStore.get("x-admin-role") || "";
+    const headerUserId = headerStore.get("x-user-id");
+    const headerUserRole = headerStore.get("x-user-role") || headerStore.get("x-role");
+    if (!userIdCookie && headerUserId) userIdCookie = headerUserId;
+    if (!sessionCookie && headerUserRole) sessionCookie = headerUserRole;
   } catch {}
 
-  // If user object was not resolved by auth or is demo, but explicit userId cookie is present
+  // If user object was not resolved by auth or is demo, but explicit userId is present
   if ((!user || user.id === "client-demo-id" || user.id === "vendor-demo-id") && userIdCookie && userIdCookie !== "client-demo-id" && userIdCookie !== "vendor-demo-id") {
     user = {
       id: userIdCookie,
@@ -163,7 +167,7 @@ export async function getVerifiedAuthContext(
       return {
         userId: activeMemberRecord?.id || "client-demo-id",
         email: activeMemberRecord?.email || userEmailCookie || "client@rfqsa.tech",
-        fullName: activeMemberRecord?.full_name || (isOwner ? "شركة المشتريات الوطنية" : "موظف بالمنشأة"),
+        fullName: activeMemberRecord?.full_name || userNameCookie || (isOwner ? "منشأة العميل" : "موظف بالمنشأة"),
         role: roleId,
         roleNameAr: getRoleDisplayNameAr(roleId, customRoleNameAr),
         organizationId: orgId,
@@ -207,7 +211,7 @@ export async function getVerifiedAuthContext(
       return {
         userId: activeMemberRecord?.id || "vendor-demo-id",
         email: activeMemberRecord?.email || userEmailCookie || "vendor@rfqsa.tech",
-        fullName: activeMemberRecord?.full_name || (isOwner ? "مؤسسة قطع الغيار المعتمدة" : "موظف بمتجر التوريد"),
+        fullName: activeMemberRecord?.full_name || userNameCookie || (isOwner ? "متجر المورد" : "موظف بمتجر التوريد"),
         role: roleId,
         roleNameAr: getRoleDisplayNameAr(roleId, customRoleNameAr),
         organizationId: orgId,
@@ -220,11 +224,23 @@ export async function getVerifiedAuthContext(
   }
 
   // 1. Fetch user's profile
-  const { data: profile } = await supabase
+  let { data: profile } = await supabase
     .from("profiles")
-    .select("id, full_name, role, is_admin, admin_role, phone, role_id, custom_role")
+    .select("id, full_name, company_name, role, is_admin, admin_role, phone, role_id, custom_role")
     .eq("id", user.id)
     .maybeSingle();
+
+  if (!profile) {
+    try {
+      const fs = require("fs");
+      const path = require("path");
+      const pf = path.join(process.cwd(), "data", "profiles_db.json");
+      if (fs.existsSync(pf)) {
+        const list = JSON.parse(fs.readFileSync(pf, "utf-8"));
+        profile = list.find((p: any) => p.id === user.id || (user.email && p.email?.toLowerCase() === user.email.toLowerCase()));
+      }
+    } catch (_) {}
+  }
 
   const isSuperAdmin = Boolean(
     profile?.is_admin ||

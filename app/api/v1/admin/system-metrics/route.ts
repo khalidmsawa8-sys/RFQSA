@@ -64,7 +64,10 @@ export async function GET() {
       console.warn("Could not read count from data dir:", e);
     }
 
-    const settings = await getSystemSettings();
+    const rawSettings = await getSystemSettings();
+    const safeSettings: any = { ...rawSettings };
+    delete safeSettings.smtp_password;
+    safeSettings.smtp_password_configured = Boolean(rawSettings.smtp_password && rawSettings.smtp_password.length > 0);
 
     // Read admin profile from persistent admin settings or defaults
     const adminProfileFile = path.join(dataDir, "admin_profile.json");
@@ -130,7 +133,7 @@ export async function GET() {
         clients_count: 8,
         vendors_count: 6,
       },
-      settings,
+      settings: safeSettings,
       admin_profile: adminProfile,
     });
   } catch (error: any) {

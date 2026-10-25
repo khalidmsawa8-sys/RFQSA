@@ -235,11 +235,9 @@ export async function exportAdminOrdersToExcel(
     { header: "اسم العميل", key: "clientName", width: 22 },
     { header: "شركة العميل", key: "clientCompany", width: 24 },
     { header: "كود العميل", key: "clientRefCode", width: 14 },
-    { header: "جوال العميل", key: "clientPhone", width: 16 },
     { header: "اسم المورد", key: "vendorName", width: 22 },
     { header: "شركة المورد", key: "vendorCompany", width: 24 },
     { header: "كود المورد", key: "vendorRefCode", width: 14 },
-    { header: "جوال المورد", key: "vendorPhone", width: 16 },
     { header: "المركبة", key: "vehicle", width: 22 },
     { header: "سنة الصنع", key: "carYear", width: 12 },
     { header: "رقم اللوحة", key: "plateNumber", width: 15 },
@@ -286,11 +284,9 @@ export async function exportAdminOrdersToExcel(
       clientName: row.clientName || "—",
       clientCompany: row.clientCompany || "—",
       clientRefCode: row.clientRefCode || "—",
-      clientPhone: row.clientPhone || "—",
       vendorName: row.vendorName || "—",
       vendorCompany: row.vendorCompany || "—",
       vendorRefCode: row.vendorRefCode || "—",
-      vendorPhone: row.vendorPhone || "—",
       vehicle: `${row.carMake || ""} ${row.carModel || ""}`.trim() || "—",
       carYear: row.carYear || "—",
       plateNumber: row.plateNumber || "—",
@@ -361,6 +357,9 @@ export interface AdminInvoiceExportRow {
   vin?: string;
   orderDetails: string;
   subtotal: number;
+  clientCommission?: number;
+  vendorCommission?: number;
+  platformCommission?: number;
   taxAmount: number;
   totalAmount: number;
   issuedAt: string;
@@ -372,7 +371,11 @@ export interface AdminInvoiceExportRow {
  */
 export async function exportAdminInvoicesToExcel(
   rows: AdminInvoiceExportRow[],
-  fileNamePrefix: string = "فواتير_المنصة_الضريبية_الشاملة"
+  fileNamePrefix: string = "فواتير_المنصة_الضريبية_الشاملة",
+  vatPercent?: number,
+  commissionPercent?: number,
+  clientFeePercent?: number,
+  vendorFeePercent?: number
 ): Promise<void> {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "منصة رفق RFQ - الإدارة المالية";
@@ -380,6 +383,10 @@ export async function exportAdminInvoicesToExcel(
 
   const worksheet = workbook.addWorksheet("سجل الفواتير الضريبية");
   (worksheet as any).views = [{ rightToLeft: true, showGridLines: true }];
+
+  const clientCommHeader = clientFeePercent ? `عمولة العميل (${clientFeePercent}%) (ر.س)` : "عمولة العميل (ر.س)";
+  const vendorCommHeader = vendorFeePercent ? `عمولة المورد (${vendorFeePercent}%) (ر.س)` : "عمولة المورد (ر.س)";
+  const vatHeader = vatPercent ? `ضريبة القيمة المضافة (${vatPercent}%) (ر.س)` : "ضريبة القيمة المضافة (ر.س)";
 
   worksheet.columns = [
     { header: "رقم الفاتورة", key: "invoiceNumber", width: 18 },
@@ -396,8 +403,11 @@ export async function exportAdminInvoicesToExcel(
     { header: "رقم الهيكل VIN", key: "vin", width: 20 },
     { header: "تفاصيل الطلب والقطع", key: "orderDetails", width: 45 },
     { header: "المبلغ قبل الضريبة (ر.س)", key: "subtotal", width: 20 },
-    { header: "ضريبة 15% (ر.س)", key: "taxAmount", width: 16 },
-    { header: "الإجمالي شامل الضريبة (ر.س)", key: "totalAmount", width: 22 },
+    { header: clientCommHeader, key: "clientCommission", width: 20 },
+    { header: vendorCommHeader, key: "vendorCommission", width: 20 },
+    { header: "إجمالي عمولات المنصة (ر.س)", key: "platformCommission", width: 22 },
+    { header: vatHeader, key: "taxAmount", width: 22 },
+    { header: "الإجمالي شامل الضريبة (ر.س)", key: "totalAmount", width: 24 },
   ];
 
   const headerRow = worksheet.getRow(1);
@@ -444,6 +454,9 @@ export async function exportAdminInvoicesToExcel(
       vin: row.vin || "—",
       orderDetails: formatPartsDescriptionText(row.orderDetails),
       subtotal: `${Number(row.subtotal || 0).toLocaleString("ar-SA", { minimumFractionDigits: 2 })} ر.س`,
+      clientCommission: `${Number(row.clientCommission || 0).toLocaleString("ar-SA", { minimumFractionDigits: 2 })} ر.س`,
+      vendorCommission: `${Number(row.vendorCommission || 0).toLocaleString("ar-SA", { minimumFractionDigits: 2 })} ر.س`,
+      platformCommission: `${Number(row.platformCommission || 0).toLocaleString("ar-SA", { minimumFractionDigits: 2 })} ر.س`,
       taxAmount: `${Number(row.taxAmount || 0).toLocaleString("ar-SA", { minimumFractionDigits: 2 })} ر.س`,
       totalAmount: `${Number(row.totalAmount || 0).toLocaleString("ar-SA", { minimumFractionDigits: 2 })} ر.س`,
     });
@@ -727,3 +740,133 @@ export async function exportAdminWalletUsersToExcel(
   document.body.removeChild(link);
   window.URL.revokeObjectURL(url);
 }
+
+export interface AdminPlatformWalletExportRow {
+  reference: string;
+  orderId: string;
+  invoiceNumber: string;
+  source: string;
+  feeType: string;
+  partyName: string;
+  partyCompany?: string;
+  feePercent?: string | number;
+  amount: number;
+  balanceAfter: number;
+  createdAt: string;
+  description: string;
+}
+
+/**
+ * Enterprise Admin Platform Commission Wallet Excel (.xlsx) Exporter
+ */
+export async function exportAdminPlatformWalletToExcel(
+  rows: AdminPlatformWalletExportRow[],
+  fileNamePrefix: string = "سجل_عمولات_محفظة_المنصة"
+): Promise<void> {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = "منصة رفق RFQ - الإدارة المالية";
+  workbook.created = new Date();
+
+  const worksheet = workbook.addWorksheet("سجل عمولات المنصة");
+  (worksheet as any).views = [{ rightToLeft: true, showGridLines: true }];
+
+  worksheet.columns = [
+    { header: "رقم العملية / المرجع", key: "reference", width: 22 },
+    { header: "رقم الطلب", key: "orderId", width: 16 },
+    { header: "رقم الفاتورة", key: "invoiceNumber", width: 18 },
+    { header: "المصدر", key: "source", width: 14 },
+    { header: "نوع العمولة", key: "feeType", width: 18 },
+    { header: "الطرف المعني", key: "partyName", width: 24 },
+    { header: "المنشأة التابعة", key: "partyCompany", width: 26 },
+    { header: "النسبة (%)", key: "feePercent", width: 14 },
+    { header: "المبلغ المحصل (ر.س)", key: "amount", width: 20 },
+    { header: "رصيد المحفظة بعد العملية (ر.س)", key: "balanceAfter", width: 24 },
+    { header: "تاريخ ووقت التحصيل", key: "createdAt", width: 20 },
+    { header: "البيان المحاسبي", key: "description", width: 45 },
+  ];
+
+  const headerRow = worksheet.getRow(1);
+  headerRow.height = 32;
+  headerRow.eachCell((cell) => {
+    cell.fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FF0F172A" }, // Dark slate
+    };
+    cell.font = {
+      name: "Arial",
+      size: 11,
+      bold: true,
+      color: { argb: "FFFFFFFF" },
+    };
+    cell.alignment = {
+      vertical: "middle",
+      horizontal: "center",
+      wrapText: true,
+    };
+    cell.border = {
+      top: { style: "thin", color: { argb: "FF334155" } },
+      bottom: { style: "medium", color: { argb: "FF334155" } },
+      left: { style: "thin", color: { argb: "FF334155" } },
+      right: { style: "thin", color: { argb: "FF334155" } },
+    };
+  });
+
+  rows.forEach((row, index) => {
+    const isEven = index % 2 === 0;
+    const addedRow = worksheet.addRow({
+      reference: row.reference,
+      orderId: row.orderId || "—",
+      invoiceNumber: row.invoiceNumber || "—",
+      source: row.source === "client" ? "عميل" : row.source === "vendor" ? "مورد" : "المنصة",
+      feeType: row.feeType === "client_fee" ? "رسوم عميل" : row.feeType === "vendor_fee" ? "عمولة مورد" : "رسوم خدمة",
+      partyName: row.partyName || "—",
+      partyCompany: row.partyCompany || "—",
+      feePercent: row.feePercent ? (String(row.feePercent).includes("%") ? row.feePercent : `${row.feePercent}%`) : "—",
+      amount: `${Number(row.amount || 0).toLocaleString("ar-SA", { minimumFractionDigits: 2 })} ر.س`,
+      balanceAfter: `${Number(row.balanceAfter || 0).toLocaleString("ar-SA", { minimumFractionDigits: 2 })} ر.س`,
+      createdAt: row.createdAt,
+      description: row.description || "—",
+    });
+
+    addedRow.height = 26;
+    addedRow.eachCell((cell, colNumber) => {
+      cell.font = {
+        name: "Arial",
+        size: 10,
+        color: { argb: "FF1E293B" },
+        bold: colNumber === 9 || colNumber === 10,
+      };
+      cell.alignment = {
+        vertical: "middle",
+        horizontal: colNumber === 12 || colNumber === 6 || colNumber === 7 ? "right" : "center",
+      };
+      cell.fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: isEven ? "FFFFFFFF" : "FFF8FAFC" },
+      };
+      cell.border = {
+        top: { style: "thin", color: { argb: "FFE2E8F0" } },
+        bottom: { style: "thin", color: { argb: "FFE2E8F0" } },
+        left: { style: "thin", color: { argb: "FFE2E8F0" } },
+        right: { style: "thin", color: { argb: "FFE2E8F0" } },
+      };
+    });
+  });
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  const blob = new Blob([buffer], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  const dateStr = new Date().toISOString().split("T")[0];
+  link.href = url;
+  link.download = `${fileNamePrefix}_${dateStr}.xlsx`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  window.URL.revokeObjectURL(url);
+}
+

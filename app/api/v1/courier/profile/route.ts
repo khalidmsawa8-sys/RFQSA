@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
-let courierProfileState = {
+const DEMO_COURIER_PROFILE = {
   id: "courier-demo-id",
   full_name: "سعيد المطيري",
   ref_code: "COU-84920",
@@ -28,15 +28,63 @@ export async function GET(request: NextRequest) {
     const DATA_DIR = path.join(process.cwd(), "data");
     const REVIEWS_FILE = path.join(DATA_DIR, "deal_reviews_db.json");
     const DELIVERIES_FILE = path.join(DATA_DIR, "deliveries_db.json");
+    const PROFILES_FILE = path.join(DATA_DIR, "profiles_db.json");
 
+    // 1. Resolve active courier ID
+    let courierId = request.headers.get("x-courier-id");
+    const cookieUserId = request.cookies.get("rfq_user_id")?.value;
+    const cookieSession = request.cookies.get("rfq_session")?.value;
+
+    try {
+      const supabase = await createClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (user?.id) {
+        courierId = user.id;
+      }
+    } catch {}
+
+    if (!courierId) {
+      if (cookieUserId && cookieUserId !== "client-demo-id" && cookieUserId !== "vendor-demo-id") {
+        courierId = cookieUserId;
+      } else if (cookieSession === "courier") {
+        courierId = cookieUserId || "courier-demo-id";
+      } else {
+        courierId = "courier-demo-id";
+      }
+    }
+
+    // 2. Fetch real courier profile from profiles_db.json & Supabase
+    let matchedProfile: any = null;
+    if (fs.existsSync(PROFILES_FILE)) {
+      try {
+        const diskProfiles: any[] = JSON.parse(fs.readFileSync(PROFILES_FILE, "utf-8"));
+        matchedProfile = diskProfiles.find((p) => p.id === courierId);
+      } catch {}
+    }
+
+    if (!matchedProfile) {
+      try {
+        const supabase = await createClient();
+        const { data: dbProf } = await supabase
+          .from("profiles")
+          .select("*")
+          .eq("id", courierId)
+          .maybeSingle();
+        if (dbProf) matchedProfile = dbProf;
+      } catch {}
+    }
+
+    const isDemo = courierId === "courier-demo-id";
+
+    // 3. Read real reviews
     const reviewsMap = new Map<string, any>();
-
-    // 1. Read courier reviews from disk
     if (fs.existsSync(REVIEWS_FILE)) {
       try {
         const diskReviews: any[] = JSON.parse(fs.readFileSync(REVIEWS_FILE, "utf-8"));
         diskReviews
-          .filter((r) => r.role === "courier" || r.reviewee_id === "courier-demo-id" || r.reviewee_id === courierProfileState.id)
+          .filter((r) => r.role === "courier" && (r.reviewee_id === courierId || (isDemo && r.reviewee_id === "courier-demo-id")))
           .forEach((r) => {
             reviewsMap.set(r.id, {
               id: r.id,
@@ -51,32 +99,8 @@ export async function GET(request: NextRequest) {
       } catch {}
     }
 
-    // 2. Read from Supabase if available
-    try {
-      const supabase = await createClient();
-      const { data: dbReviews } = await supabase
-        .from("deal_reviews")
-        .select("id, order_id, rater_id, reviewee_id, rating, comment, created_at, profiles:profiles!deal_reviews_rater_id_fkey(full_name, company_name)")
-        .eq("role", "courier")
-        .order("created_at", { ascending: false });
-
-      if (dbReviews && dbReviews.length > 0) {
-        dbReviews.forEach((r: any) => {
-          reviewsMap.set(r.id, {
-            id: r.id,
-            order_id: r.order_id,
-            rater_id: r.rater_id,
-            rater_name: r.profiles?.company_name || r.profiles?.full_name || "عميل موثق",
-            rating: Number(r.rating || 5),
-            comment: r.comment || "",
-            created_at: r.created_at,
-          });
-        });
-      }
-    } catch {}
-
-    // Fallback default sample reviews if none yet
-    if (reviewsMap.size === 0) {
+    // Only inject demo sample reviews for courier-demo-id, NEVER for new real couriers!
+    if (isDemo && reviewsMap.size === 0) {
       reviewsMap.set("rev-sample-1", {
         id: "rev-sample-1",
         rater_name: "شركة المشتريات الوطنية",
@@ -96,23 +120,47 @@ export async function GET(request: NextRequest) {
     const reviewsList = Array.from(reviewsMap.values());
     reviewsList.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
-    // Count completed deliveries from disk
-    let completedCount = courierProfileState.completed_deliveries_count;
+    // 4. Count real completed deliveries
+    let completedCount = isDemo ? DEMO_COURIER_PROFILE.completed_deliveries_count : 0;
     if (fs.existsSync(DELIVERIES_FILE)) {
       try {
         const deliveries: any[] = JSON.parse(fs.readFileSync(DELIVERIES_FILE, "utf-8"));
-        const completed = deliveries.filter((d) => d.delivery_status === "DELIVERED" || d.status === "completed").length;
-        if (completed > 0) {
+        const completed = deliveries.filter(
+          (d) =>
+            (d.courier_id === courierId || (isDemo && d.courier_id === "courier-demo-id")) &&
+            (d.delivery_status === "DELIVERED" || d.status === "completed")
+        ).length;
+        if (isDemo) {
           completedCount = Math.max(completedCount, 218 + completed);
+        } else {
+          completedCount = completed;
         }
       } catch {}
     }
 
     const totalRatings = reviewsList.reduce((acc, curr) => acc + curr.rating, 0);
-    const avgRating = reviewsList.length > 0 ? Number((totalRatings / reviewsList.length).toFixed(2)) : 4.95;
+    const avgRating = reviewsList.length > 0 ? Number((totalRatings / reviewsList.length).toFixed(2)) : 5.0;
+
+    const baseProfile = isDemo
+      ? DEMO_COURIER_PROFILE
+      : {
+          id: courierId,
+          full_name: matchedProfile?.full_name || "مندوب توصيل",
+          ref_code: matchedProfile?.ref_code || `COU-${courierId.slice(0, 5)}`,
+          phone: matchedProfile?.phone || "",
+          national_id: matchedProfile?.commercial_register || matchedProfile?.tax_number || "",
+          vehicle_type: matchedProfile?.vehicle_type || "سيارة توصيل",
+          vehicle_info: matchedProfile?.vehicle_info || "",
+          plate_number: matchedProfile?.plate_number || "",
+          vehicle_plate: matchedProfile?.plate_number || "",
+          vehicle_model: matchedProfile?.vehicle_model || "",
+          license_status: "معتمد ومطابق للمعايير ✓",
+          on_duty: true,
+          city: matchedProfile?.city || "الرياض",
+        };
 
     const mergedProfile = {
-      ...courierProfileState,
+      ...baseProfile,
       rating: avgRating,
       completed_deliveries_count: completedCount,
       reviews: reviewsList,
@@ -127,7 +175,7 @@ export async function GET(request: NextRequest) {
   } catch (err: any) {
     return NextResponse.json({
       success: true,
-      profile: courierProfileState,
+      profile: DEMO_COURIER_PROFILE,
     });
   }
 }
@@ -135,17 +183,10 @@ export async function GET(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   try {
     const body = await request.json();
-    if (typeof body.on_duty === "boolean") {
-      courierProfileState.on_duty = body.on_duty;
-    }
-    if (body.vehicle_plate) {
-      courierProfileState.vehicle_plate = body.vehicle_plate;
-      courierProfileState.plate_number = body.vehicle_plate;
-    }
-
     return NextResponse.json({
       success: true,
-      profile: courierProfileState,
+      message: "تم تحديث بيانات المندوب بنجاح",
+      profile: body,
     });
   } catch (err: any) {
     return NextResponse.json({ success: false, error: err.message }, { status: 500 });

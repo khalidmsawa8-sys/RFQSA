@@ -32,11 +32,6 @@ export const KNOWN_CAR_BRANDS = [
  * Known header aliases for fuzzy matching across Arabic and English variations.
  */
 const COLUMN_ALIASES: Record<string, string[]> = {
-  vehicle_full_name: [
-    "اسم السيارة", "السيارة", "اسم المركبة", "المركبة", "نوع السيارة", "نوع المركبة",
-    "السيارات", "المركبات", "بيانات المركبة", "وصف المركبة", "الماركة والموديل",
-    "vehicle", "car_name", "car", "vehicle_name", "vehicle_desc", "model_and_make"
-  ],
   brand_name: [
     "الماركة", "ماركة", "الشركة المصنعة", "المصنع", "نوع", "ماركة السيارة", "الماركه", "ماركه",
     "brand", "make", "manufacturer", "car_make", "vehicle_make"
@@ -80,6 +75,10 @@ const COLUMN_ALIASES: Record<string, string[]> = {
   notes: [
     "ملاحظات", "ملاحظات الصيانة والتشغيل", "ملاحظات إضافية", "وصف", "تفاصيل", "ملاحظة",
     "notes", "description", "comments", "remarks", "memo"
+  ],
+  vehicle_full_name: [
+    "اسم السيارة", "اسم المركبة", "بيانات المركبة", "وصف المركبة", "الماركة والموديل",
+    "vehicle_name", "car_name", "model_and_make"
   ],
 };
 
@@ -210,9 +209,7 @@ export async function generateVehicleImportTemplate(): Promise<void> {
   sub.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1E293B" } };
   worksheet.getRow(2).height = 22;
 
-  worksheet.getRow(3).height = 8; // Spacing
-
-  // Table Headers
+  // Table Headers (Row 3)
   const headers = [
     "الماركة *",
     "الموديل *",
@@ -227,7 +224,7 @@ export async function generateVehicleImportTemplate(): Promise<void> {
     "ملاحظات الصيانة والتشغيل",
   ];
 
-  const headerRow = worksheet.getRow(4);
+  const headerRow = worksheet.getRow(3);
   headerRow.height = 30;
   headers.forEach((h, idx) => {
     const c = headerRow.getCell(idx + 1);
@@ -287,7 +284,7 @@ export async function generateVehicleImportTemplate(): Promise<void> {
   ];
 
   sampleRows.forEach((rowValues, rIdx) => {
-    const row = worksheet.getRow(5 + rIdx);
+    const row = worksheet.getRow(4 + rIdx);
     row.height = 26;
     rowValues.forEach((val, cIdx) => {
       const cell = row.getCell(cIdx + 1);
@@ -310,7 +307,7 @@ export async function generateVehicleImportTemplate(): Promise<void> {
   });
 
   // Pre-format 100 empty data rows with Text formatting for VIN/Plate
-  for (let i = 8; i <= 100; i++) {
+  for (let i = 7; i <= 100; i++) {
     const r = worksheet.getRow(i);
     r.height = 24;
     // VIN (Col F) and Plate (Col E) format as plain Text to prevent scientific notation in Excel
@@ -439,6 +436,12 @@ export async function parseVehicleImportExcel(
   let headerRowNumber = 1;
   let headerCells: Array<{ colIdx: number; text: string }> = [];
 
+  const norm = (s: string) =>
+    s.toLowerCase().replace(/[\*\(\)\-_]/g, " ").replace(/\s+/g, " ").trim();
+
+  // Core fields that distinguish a vehicle table header from banners or text
+  const CORE_VEHICLE_FIELDS = ["brand_name", "model_name", "year", "plate_number", "vin"];
+
   for (let r = 1; r <= Math.min(10, worksheet.rowCount); r++) {
     const row = worksheet.getRow(r);
     const cells: Array<{ colIdx: number; text: string }> = [];
@@ -447,15 +450,37 @@ export async function parseVehicleImportExcel(
       if (txt) cells.push({ colIdx: colNumber, text: txt });
     });
 
-    // Check if this row contains multiple expected column names
-    const matchCount = cells.filter((c) => {
-      const lower = c.text.toLowerCase().replace(/[\*\(\)]/g, "").trim();
-      return Object.values(COLUMN_ALIASES).some((aliases) =>
-        aliases.some((a) => lower.includes(a.toLowerCase()))
-      );
-    }).length;
+    if (cells.length < 2) continue;
 
-    if (matchCount >= 3) {
+    // Guard 1: Skip merged rows where all cells have the exact same text (e.g. title banners)
+    const uniqueValues = new Set(cells.map((c) => c.text.trim()));
+    if (uniqueValues.size <= 1) continue;
+
+    // Guard 2: Skip explicit instructions or guide banners
+    const joinedText = cells.map((c) => c.text).join(" ").toLowerCase();
+    if (
+      joinedText.includes("تعليمات:") ||
+      joinedText.includes("fleet import template") ||
+      joinedText.includes("دليل إرشادات") ||
+      joinedText.includes("الحقول المؤشر عليها")
+    ) {
+      continue;
+    }
+
+    // Check how many DISTINCT vehicle fields match in this candidate row
+    const matchedDistinctFields = new Set<string>();
+    cells.forEach((c) => {
+      const cleanCell = norm(c.text);
+      for (const [fieldKey, aliases] of Object.entries(COLUMN_ALIASES)) {
+        if (aliases.some((a) => cleanCell === norm(a) || cleanCell.includes(norm(a)))) {
+          matchedDistinctFields.add(fieldKey);
+        }
+      }
+    });
+
+    // Valid header row if at least 2 distinct core vehicle fields or 3 distinct overall fields matched
+    const coreMatches = CORE_VEHICLE_FIELDS.filter((f) => matchedDistinctFields.has(f)).length;
+    if (coreMatches >= 2 || matchedDistinctFields.size >= 3) {
       headerRowNumber = r;
       headerCells = cells;
       break;
@@ -472,15 +497,39 @@ export async function parseVehicleImportExcel(
 
   const availableHeaders = headerCells.map((h) => h.text);
 
-  // Auto-detect Column Mapping
+  // ── Auto-detect Column Mapping with 2-Pass Strategy ──
   const columnMap: Record<string, string> = {};
+  const usedHeaders = new Set<string>();
+
+  // Pass 1: Exact normalized match (aliases vs headers) excluding vehicle_full_name
   for (const [fieldKey, aliases] of Object.entries(COLUMN_ALIASES)) {
-    const found = headerCells.find((h) => {
-      const cleanHeader = h.text.toLowerCase().replace(/[\*\(\)]/g, "").trim();
-      return aliases.some((alias) => cleanHeader.includes(alias.toLowerCase()));
-    });
-    if (found) {
-      columnMap[fieldKey] = found.text;
+    if (fieldKey === "vehicle_full_name") continue;
+    for (const h of headerCells) {
+      if (usedHeaders.has(h.text)) continue;
+      const cleanH = norm(h.text);
+      if (aliases.some((a) => cleanH === norm(a))) {
+        columnMap[fieldKey] = h.text;
+        usedHeaders.add(h.text);
+        break;
+      }
+    }
+  }
+
+  // Pass 2: Substring match for unmapped fields
+  for (const [fieldKey, aliases] of Object.entries(COLUMN_ALIASES)) {
+    if (columnMap[fieldKey]) continue;
+    // Don't map vehicle_full_name if we already have brand_name or model_name
+    if (fieldKey === "vehicle_full_name" && (columnMap["brand_name"] || columnMap["model_name"])) {
+      continue;
+    }
+    for (const h of headerCells) {
+      if (usedHeaders.has(h.text)) continue;
+      const cleanH = norm(h.text);
+      if (aliases.some((a) => cleanH.includes(norm(a)) || norm(a).includes(cleanH))) {
+        columnMap[fieldKey] = h.text;
+        usedHeaders.add(h.text);
+        break;
+      }
     }
   }
 
@@ -488,9 +537,9 @@ export async function parseVehicleImportExcel(
   const parsedRows: ParsedRawRow[] = [];
   for (let r = headerRowNumber + 1; r <= worksheet.rowCount; r++) {
     const row = worksheet.getRow(r);
-    // Check if row is empty
-    let hasData = false;
     const rowObj: Record<string, string> = {};
+    let nonEmptyCount = 0;
+    const values: string[] = [];
 
     headerCells.forEach(({ colIdx, text }) => {
       const cell = row.getCell(colIdx);
@@ -505,16 +554,38 @@ export async function parseVehicleImportExcel(
         }
       }
       val = val.trim();
-      if (val) hasData = true;
+      if (val) {
+        nonEmptyCount++;
+        values.push(val);
+      }
       rowObj[text] = val;
     });
 
-    if (hasData) {
-      parsedRows.push({
-        row_number: r,
-        raw: rowObj,
-      });
+    // Skip completely empty rows
+    if (nonEmptyCount === 0) continue;
+
+    // Skip rows where all cells have identical text (merged banners)
+    if (new Set(values).size <= 1 && values.length > 1) continue;
+
+    // Skip instructions or guidelines banner rows
+    const joined = values.join(" ").toLowerCase();
+    if (
+      joined.includes("تعليمات:") ||
+      joined.includes("fleet import template") ||
+      joined.includes("دليل إرشادات") ||
+      joined.includes("الحقول المؤشر عليها")
+    ) {
+      continue;
     }
+
+    // Skip repeated headers if user duplicated header rows in data
+    const isRepeatedHeader = headerCells.every((h) => rowObj[h.text] === h.text);
+    if (isRepeatedHeader) continue;
+
+    parsedRows.push({
+      row_number: r,
+      raw: rowObj,
+    });
   }
 
   return {
@@ -571,7 +642,24 @@ export function validateImportedVehicles(
   let errorCount = 0;
   let duplicateCount = 0;
 
-  rawRows.forEach((r) => {
+  // Filter out any lingering banner or instruction rows before processing
+  const cleanRawRows = rawRows.filter((r) => {
+    const values = Object.values(r.raw).map((v) => (v || "").trim()).filter(Boolean);
+    if (values.length === 0) return false;
+    const joined = values.join(" ").toLowerCase();
+    if (
+      joined.includes("تعليمات:") ||
+      joined.includes("fleet import template") ||
+      joined.includes("دليل إرشادات") ||
+      joined.includes("الحقول المؤشر عليها")
+    ) {
+      return false;
+    }
+    if (new Set(values).size <= 1 && values.length > 1) return false;
+    return true;
+  });
+
+  cleanRawRows.forEach((r) => {
     const errors: string[] = [];
     const warnings: string[] = [];
 
@@ -593,6 +681,16 @@ export function validateImportedVehicles(
     const rawStatus = getVal("status");
     const rawFavorite = getVal("is_favorite");
     const notes = getVal("notes");
+
+    // Skip if row happens to contain instruction text
+    if (
+      brandName.includes("تعليمات:") ||
+      brandName.includes("الحقول المؤشر عليها") ||
+      plateNumber.includes("تعليمات:") ||
+      plateNumber.includes("الحقول المؤشر عليها")
+    ) {
+      return;
+    }
 
     // ── Smart Extraction: Combine & Auto-Detect Make/Model/Year if missing ──
     if ((!brandName || !modelName) && vehicleFullName) {
@@ -756,7 +854,7 @@ export function validateImportedVehicles(
   });
 
   return {
-    totalRows: rawRows.length,
+    totalRows: validatedRows.length,
     validCount,
     warningCount,
     errorCount,

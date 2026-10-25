@@ -8,6 +8,8 @@ import 'package:rfqsa_mobile/core/utils/id_utils.dart';
 import 'package:rfqsa_mobile/core/api/api_client.dart';
 import 'package:rfqsa_mobile/core/api/api_endpoints.dart';
 import 'package:rfqsa_mobile/core/state_machine/order_state_machine.dart';
+import 'package:rfqsa_mobile/core/notifications/notification_service.dart';
+import 'package:rfqsa_mobile/core/config/platform_settings_service.dart';
 import 'package:rfqsa_mobile/features/shared/presentation/widgets/support_chat_modal.dart';
 
 /// Live Order Tracking & Execution Screen with Multi-Stage Stepper, OTP Security Card, Tax Invoice & Admin Chat (1:1 Web Parity)
@@ -33,10 +35,12 @@ class _ClientOrderTrackingScreenState extends State<ClientOrderTrackingScreen> {
   double _subtotal = 0.0;
   double _deliveryFee = 0.0;
   double _vat = 0.0;
+  double _platformFee = 5.0;
   String _vendorId = '';
   String _courierId = '';
   String _vendorName = 'المورد المعتمد';
   String _vendorAddress = 'الفرع المعتمد';
+  String _vendorPhone = '';
   String _deliveryAddress = 'موقع العميل المحدد';
   String _courierName = 'مندوب أسطول رفق المعتمد';
   String _courierPhone = '';
@@ -49,18 +53,26 @@ class _ClientOrderTrackingScreenState extends State<ClientOrderTrackingScreen> {
   bool get _isPickup {
     final data = widget.orderData ?? {};
     final rfq = data['rfqs'] ?? data['rfq'] ?? {};
-    return _deliveryFee == 0 ||
-        data['is_pickup'] == true ||
-        data['fulfillment_type'] == 'BRANCH_PICKUP' ||
-        data['fulfillment_method'] == 'BRANCH_PICKUP' ||
-        data['fulfillment_method'] == 'pickup' ||
-        data['delivery_method'] == 'pickup' ||
-        data['shipping_method'] == 'pickup' ||
-        rfq['fulfillment_method'] == 'SELF_PICKUP' ||
-        rfq['delivery_method'] == 'pickup' ||
-        _deliveryAddress.contains('استلام من الفرع') ||
-        _deliveryAddress.contains('فرع') ||
-        _deliveryAddress.contains('استلام');
+    final rawFulfillment = (data['fulfillment_method'] ??
+            data['fulfillment_type'] ??
+            rfq['fulfillment_method'] ??
+            data['delivery_method'] ??
+            rfq['delivery_method'] ??
+            '')
+        .toString()
+        .toLowerCase();
+    final isExplicitDelivery = rawFulfillment == 'delivery' ||
+        rawFulfillment == 'courier' ||
+        rawFulfillment == 'shipping' ||
+        data['is_pickup'] == false;
+    if (isExplicitDelivery) return false;
+    final loc = (data['delivery_location'] ?? rfq['delivery_location'] ?? '').toString();
+    return data['is_pickup'] == true ||
+        rawFulfillment == 'branch_pickup' ||
+        rawFulfillment == 'pickup' ||
+        rawFulfillment == 'self_pickup' ||
+        loc.contains('استلام من الفرع') ||
+        loc.contains('استلام من فرع');
   }
 
   String _computeFallbackOtp(String orderId) {
@@ -114,6 +126,9 @@ class _ClientOrderTrackingScreenState extends State<ClientOrderTrackingScreen> {
   @override
   void initState() {
     super.initState();
+    PlatformSettingsService.instance.fetchSettings().then((_) {
+      if (mounted) setState(() {});
+    });
     _extractInitialData();
     _fetchLiveOrderData();
   }
@@ -123,10 +138,44 @@ class _ClientOrderTrackingScreenState extends State<ClientOrderTrackingScreen> {
     _orderId = widget.orderId ?? data['orderId']?.toString() ?? data['id']?.toString() ?? 'ORD-8412';
     _status = (data['status']?.toString() ?? 'in_transit').toLowerCase();
     _otpCode = data['otp']?.toString() ?? data['otp_code']?.toString() ?? data['delivery_otp']?.toString() ?? _computeFallbackOtp(_orderId);
-    _totalPrice = double.tryParse(data['total_price']?.toString() ?? data['total_amount']?.toString() ?? '0') ?? 0.0;
-    _deliveryFee = double.tryParse(data['delivery_fee']?.toString() ?? '0') ?? 0.0;
-    _subtotal = double.tryParse(data['subtotal']?.toString() ?? '') ?? (_totalPrice > _deliveryFee ? (_totalPrice - _deliveryFee) / 1.15 : _totalPrice);
-    _vat = double.tryParse(data['tax_amount']?.toString() ?? data['vat']?.toString() ?? '') ?? (_subtotal * 0.15);
+
+    final settlement = data['settlement_summary'] is Map
+        ? data['settlement_summary'] as Map
+        : (data['breakdown'] is Map ? data['breakdown'] as Map : null);
+
+    if (settlement != null) {
+      _subtotal = double.tryParse(settlement['partsSubtotal']?.toString() ?? '') ?? _subtotal;
+      _vat = double.tryParse(settlement['partsVat']?.toString() ?? '') ?? _vat;
+      _platformFee = double.tryParse(settlement['clientPlatformFee']?.toString() ?? '') ?? _platformFee;
+      _deliveryFee = double.tryParse(settlement['deliveryFee']?.toString() ?? '') ?? _deliveryFee;
+      _totalPrice = double.tryParse(settlement['grandTotal']?.toString() ?? '') ?? _totalPrice;
+    } else {
+      _totalPrice = double.tryParse(data['total_price']?.toString() ?? data['total_amount']?.toString() ?? '0') ?? 0.0;
+      final rawDel = double.tryParse(data['delivery_fee']?.toString() ?? '');
+      _deliveryFee = _isPickup ? 0.0 : (rawDel ?? 25.0);
+
+      final clientFeeRate = PlatformSettingsService.instance.clientFeePercent / 100.0;
+      final rawSub = double.tryParse(data['subtotal']?.toString() ?? data['parts_subtotal']?.toString() ?? '');
+      if (rawSub != null && rawSub > 0 && rawSub < _totalPrice) {
+        _subtotal = rawSub;
+      } else if (_totalPrice > 0) {
+        final netBase = (_totalPrice - _deliveryFee).clamp(0.0, _totalPrice);
+        _subtotal = double.parse((netBase / (1.15 + clientFeeRate)).toStringAsFixed(2));
+      } else {
+        _subtotal = 100.0;
+      }
+
+      _platformFee = double.tryParse(data['client_platform_fee']?.toString() ?? data['platform_fee']?.toString() ?? '') ??
+          double.parse((_subtotal * clientFeeRate).toStringAsFixed(2));
+      final taxableBase1 = _subtotal + _platformFee + _deliveryFee;
+      _vat = double.tryParse(data['tax_amount']?.toString() ?? data['vat']?.toString() ?? data['parts_vat']?.toString() ?? '') ??
+          double.parse((taxableBase1 * 0.15).toStringAsFixed(2));
+
+      final calculatedTotal = double.parse((taxableBase1 + _vat).toStringAsFixed(2));
+      if (_totalPrice <= 0 || (_totalPrice - calculatedTotal).abs() > 5) {
+        _totalPrice = calculatedTotal;
+      }
+    }
     
     final rfq = data['rfqs'] ?? data['rfq'] ?? {};
     final rawDesc = rfq['parts_description'] ?? data['parts_description'] ?? data['parts_text'] ?? data['part_name'];
@@ -136,6 +185,7 @@ class _ClientOrderTrackingScreenState extends State<ClientOrderTrackingScreen> {
     _vendorId = vendor['id']?.toString() ?? data['vendor_id']?.toString() ?? '';
     _vendorName = vendor['company_name']?.toString() ?? vendor['full_name']?.toString() ?? data['vendor_name']?.toString() ?? 'المورد المعتمد';
     _vendorAddress = vendor['address']?.toString() ?? data['vendor_address']?.toString() ?? 'الفرع المعتمد';
+    _vendorPhone = vendor['phone']?.toString() ?? vendor['mobile']?.toString() ?? data['vendor_phone']?.toString() ?? '';
     
     _deliveryAddress = rfq['delivery_location']?.toString() ?? data['delivery_location']?.toString() ?? 'موقع العميل المحدد';
     
@@ -156,22 +206,38 @@ class _ClientOrderTrackingScreenState extends State<ClientOrderTrackingScreen> {
         setState(() {
           _status = (ord['status']?.toString() ?? _status).toLowerCase();
           _otpCode = ord['otp']?.toString() ?? ord['otp_code']?.toString() ?? ord['delivery_otp']?.toString() ?? _computeFallbackOtp(_orderId);
-          
-          if (ord['total_price'] != null) {
-            _totalPrice = double.tryParse(ord['total_price'].toString()) ?? _totalPrice;
-          }
-          if (ord['delivery_fee'] != null) {
-            _deliveryFee = double.tryParse(ord['delivery_fee'].toString()) ?? _deliveryFee;
-          }
-          if (ord['subtotal'] != null) {
-            _subtotal = double.tryParse(ord['subtotal'].toString()) ?? _subtotal;
-          } else if (_totalPrice > 0) {
-            _subtotal = (_totalPrice - _deliveryFee) / 1.15;
-          }
-          if (ord['tax_amount'] != null || ord['vat'] != null) {
-            _vat = double.tryParse((ord['tax_amount'] ?? ord['vat']).toString()) ?? _vat;
+
+          final settlement = ord['settlement_summary'] is Map
+              ? ord['settlement_summary'] as Map
+              : (ord['breakdown'] is Map ? ord['breakdown'] as Map : null);
+
+          if (settlement != null) {
+            _subtotal = double.tryParse(settlement['partsSubtotal']?.toString() ?? '') ?? _subtotal;
+            _vat = double.tryParse(settlement['partsVat']?.toString() ?? '') ?? _vat;
+            _platformFee = double.tryParse(settlement['clientPlatformFee']?.toString() ?? '') ?? _platformFee;
+            _deliveryFee = double.tryParse(settlement['deliveryFee']?.toString() ?? '') ?? _deliveryFee;
+            _totalPrice = double.tryParse(settlement['grandTotal']?.toString() ?? '') ?? _totalPrice;
           } else {
-            _vat = _subtotal * 0.15;
+            if (ord['total_price'] != null || ord['total_amount'] != null) {
+              _totalPrice = double.tryParse((ord['total_price'] ?? ord['total_amount']).toString()) ?? _totalPrice;
+            }
+            final rawDel = double.tryParse(ord['delivery_fee']?.toString() ?? '');
+            _deliveryFee = _isPickup ? 0.0 : (rawDel ?? 25.0);
+
+            final clientFeeRate = PlatformSettingsService.instance.clientFeePercent / 100.0;
+            final rawSub = double.tryParse(ord['subtotal']?.toString() ?? ord['parts_subtotal']?.toString() ?? '');
+            if (rawSub != null && rawSub > 0 && rawSub < _totalPrice) {
+              _subtotal = rawSub;
+            } else if (_totalPrice > 0) {
+              final netBase = (_totalPrice - _deliveryFee).clamp(0.0, _totalPrice);
+              _subtotal = double.parse((netBase / (1.15 + clientFeeRate)).toStringAsFixed(2));
+            }
+
+            _platformFee = double.tryParse((ord['client_platform_fee'] ?? ord['platform_fee'])?.toString() ?? '') ??
+                double.parse((_subtotal * clientFeeRate).toStringAsFixed(2));
+            final taxableBase2 = _subtotal + _platformFee + _deliveryFee;
+            _vat = double.tryParse((ord['tax_amount'] ?? ord['vat'] ?? ord['parts_vat'])?.toString() ?? '') ??
+                double.parse((taxableBase2 * 0.15).toStringAsFixed(2));
           }
 
           final rfq = ord['rfqs'] ?? ord['rfq'] ?? {};
@@ -190,6 +256,11 @@ class _ClientOrderTrackingScreenState extends State<ClientOrderTrackingScreen> {
             _vendorAddress = vendor['address'].toString();
           } else if (ord['vendor_address'] != null) {
             _vendorAddress = ord['vendor_address'].toString();
+          }
+          if (vendor['phone'] != null) {
+            _vendorPhone = vendor['phone'].toString();
+          } else if (ord['vendor_phone'] != null) {
+            _vendorPhone = ord['vendor_phone'].toString();
           }
           
           if (rfq['delivery_location'] != null) {
@@ -660,6 +731,18 @@ class _ClientOrderTrackingScreenState extends State<ClientOrderTrackingScreen> {
         setState(() {
           _status = 'completed';
         });
+
+        // Trigger local push notification on order completion (Requirement 3.1)
+        try {
+          NotificationService().showLocalNotification(
+            id: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+            title: 'اكتمال الطلب بنجاح ✅',
+            body: 'تم تأكيد استلام وفحص الطلب #$_orderId وإغلاق الصفقة رسمياً',
+            channelId: 'orders_channel',
+            channelName: 'الطلبات وعروض الأسعار',
+          );
+        } catch (_) {}
+
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -696,9 +779,42 @@ class _ClientOrderTrackingScreenState extends State<ClientOrderTrackingScreen> {
   }
 
   Future<void> _makeCall(String phone) async {
-    final uri = Uri.parse('tel:$phone');
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri);
+    final cleanPhone = phone.trim().replaceAll(' ', '').replaceAll('-', '');
+    if (cleanPhone.isEmpty) return;
+    final uri = Uri.parse('tel:$cleanPhone');
+    try {
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } else {
+        await launchUrl(uri);
+      }
+    } catch (e) {
+      debugPrint('Error launching phone call: $e');
+    }
+  }
+
+  Future<void> _openWhatsAppCourier(String phone) async {
+    final cleanPhone = phone.replaceAll(RegExp(r'\D'), '');
+    String saudiPhone = cleanPhone;
+    if (saudiPhone.startsWith('05')) {
+      saudiPhone = '966${saudiPhone.substring(1)}';
+    } else if (saudiPhone.startsWith('5')) {
+      saudiPhone = '966$saudiPhone';
+    } else if (!saudiPhone.startsWith('966')) {
+      saudiPhone = '966501234567';
+    }
+    final rawId = widget.orderId ?? widget.orderData?['id']?.toString() ?? '';
+    final shortId = IdUtils.safeShortId(rawId, prefix: 'ORD-');
+    final msg = Uri.encodeComponent('مرحباً مندوب التوصيل، أتواصل معك بخصوص الطلب #$shortId عبر تطبيق رفق.');
+    final uri = Uri.parse('https://wa.me/$saudiPhone?text=$msg');
+    try {
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } else {
+        await launchUrl(uri);
+      }
+    } catch (e) {
+      debugPrint('Error launching WhatsApp: $e');
     }
   }
 
@@ -1052,13 +1168,144 @@ class _ClientOrderTrackingScreenState extends State<ClientOrderTrackingScreen> {
                                 }
                               },
                               icon: const Icon(Icons.map_rounded, size: 16),
-                              label: const Text('موقع الفرع على الخريطة 🗺️', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w900)),
+                              label: const Text('موقع الفرع 🗺️', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w900)),
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: const Color(0xFF059669),
                                 foregroundColor: Colors.white,
                                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                                 padding: const EdgeInsets.symmetric(vertical: 10),
                               ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () => _makeCall(_vendorPhone.isNotEmpty ? _vendorPhone : '0551122334'),
+                              icon: const Icon(Icons.phone_in_talk_rounded, size: 16, color: Color(0xFF059669)),
+                              label: const Text('اتصال بالفرع 📞', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: Color(0xFF059669))),
+                              style: OutlinedButton.styleFrom(
+                                side: const BorderSide(color: Color(0xFFA7F3D0), width: 1.5),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                padding: const EdgeInsets.symmetric(vertical: 10),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+            ] else ...[
+              // ── 2.6 COURIER & DELIVERY CARD (IF DELIVERY) ──
+              Card(
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(18),
+                  side: const BorderSide(color: Color(0xFFE2E8F0)),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFEFF6FF),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: const Icon(Icons.delivery_dining_rounded, color: Color(0xFF2563EB), size: 22),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'بيانات مندوب أسطول رفق المعتمد',
+                                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w900, color: Color(0xFF0F172A)),
+                                ),
+                                Text(
+                                  _courierName,
+                                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF2563EB)),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF8FAFC),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFFE2E8F0)),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Row(
+                              children: [
+                                const Icon(Icons.two_wheeler_rounded, color: Color(0xFF64748B), size: 18),
+                                const SizedBox(width: 8),
+                                Text(
+                                  _courierVehicle,
+                                  style: const TextStyle(fontSize: 11.5, color: Color(0xFF334155), fontWeight: FontWeight.w600),
+                                ),
+                              ],
+                            ),
+                            Row(
+                              children: [
+                                const Icon(Icons.access_time_rounded, color: Color(0xFF64748B), size: 16),
+                                const SizedBox(width: 4),
+                                Text(
+                                  _estimatedTime,
+                                  style: const TextStyle(fontSize: 11, color: Color(0xFF64748B), fontWeight: FontWeight.bold),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      // Courier WhatsApp & Call Actions (Vendor contact removed per Issue 3)
+                      Row(
+                        children: [
+                          Expanded(
+                            flex: 4,
+                            child: ElevatedButton.icon(
+                              onPressed: () => _openWhatsAppCourier(_courierPhone.isNotEmpty ? _courierPhone : '0501234567'),
+                              icon: const Icon(Icons.chat_bubble_rounded, size: 17, color: Colors.white),
+                              label: const Text(
+                                'تواصل واتساب مع مندوب التوصيل 💬',
+                                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900),
+                              ),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF25D366), // WhatsApp Green
+                                foregroundColor: Colors.white,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                padding: const EdgeInsets.symmetric(vertical: 12),
+                                elevation: 1,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            flex: 1,
+                            child: OutlinedButton(
+                              onPressed: () => _makeCall(_courierPhone.isNotEmpty ? _courierPhone : '0501234567'),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: const Color(0xFF0F172A),
+                                side: const BorderSide(color: Color(0xFFCBD5E1)),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                padding: const EdgeInsets.symmetric(vertical: 12),
+                              ),
+                              child: const Icon(Icons.phone_in_talk_rounded, size: 18, color: Color(0xFF2563EB)),
                             ),
                           ),
                         ],
@@ -1211,9 +1458,17 @@ class _ClientOrderTrackingScreenState extends State<ClientOrderTrackingScreen> {
                       ),
                     ),
                     const SizedBox(height: 12),
-                    _buildInvoiceRow('المجموع الفرعي للقطع:', CurrencyFormatter.format(_subtotal)),
+                    _buildInvoiceRow('قطع الغيار (المجموع الفرعي):', CurrencyFormatter.format(_subtotal)),
                     const SizedBox(height: 6),
-                    _buildInvoiceRow('رسوم الشحن والتوصيل الميداني:', CurrencyFormatter.format(_deliveryFee)),
+                    _buildInvoiceRow(
+                      'رسوم خدمة المنصة (${PlatformSettingsService.instance.clientFeePercent.toStringAsFixed(0)}%):',
+                      CurrencyFormatter.format(_platformFee),
+                    ),
+                    const SizedBox(height: 6),
+                    if (_isPickup)
+                      _buildInvoiceRow('طريقة الاستلام:', 'استلام مباشر من الفرع (0.00 ر.س)', color: const Color(0xFF059669))
+                    else
+                      _buildInvoiceRow('رسوم الشحن والتوصيل الميداني:', CurrencyFormatter.format(_deliveryFee)),
                     const SizedBox(height: 6),
                     _buildInvoiceRow('ضريبة القيمة المضافة (15% VAT):', CurrencyFormatter.format(_vat)),
                     const Divider(height: 20, color: Color(0xFFE2E8F0)),
@@ -1314,12 +1569,19 @@ class _ClientOrderTrackingScreenState extends State<ClientOrderTrackingScreen> {
     );
   }
 
-  Widget _buildInvoiceRow(String label, String value) {
+  Widget _buildInvoiceRow(String label, String value, {Color? color, bool isBold = false}) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         Text(label, style: const TextStyle(fontSize: 11.5, color: Color(0xFF64748B))),
-        Text(value, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF334155))),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: isBold ? 13 : 12,
+            fontWeight: isBold ? FontWeight.w900 : FontWeight.bold,
+            color: color ?? const Color(0xFF334155),
+          ),
+        ),
       ],
     );
   }

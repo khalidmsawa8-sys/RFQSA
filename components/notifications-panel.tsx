@@ -203,19 +203,43 @@ export function NotificationsPanel() {
 
   async function loadNotifications() {
     try {
+      const res = await fetch("/api/v1/notifications?limit=30");
+      const data = await res.json();
+
+      if (data && data.success && Array.isArray(data.notifications)) {
+        const sanitized: NotificationItem[] = data.notifications.map((n: any, idx: number) => ({
+          id: n.id || `NOTIF-${idx + 1}`,
+          title: n.title || (n.order_id ? `تحديث الطلب #${n.order_id}` : "إشعار جديد من المنصة"),
+          message: n.message || n.body || "لديك تحديث جديد متعلق بحسابك في منصة رِفق.",
+          type: n.type || "announcement",
+          rfq_id: n.rfq_id || n.rfqId || null,
+          quote_id: n.quote_id || n.quoteId || null,
+          order_id: n.order_id || n.orderId || null,
+          delivery_id: n.delivery_id || n.deliveryId || null,
+          created_at: n.created_at || n.createdAt || new Date().toISOString(),
+          sent_at: n.sent_at || n.sentAt || null,
+          action_url: n.action_url || n.route || null,
+          is_read: Boolean(n.is_read ?? n.isRead),
+        }));
+
+        setNotifications(sanitized);
+        setUnreadCount(sanitized.filter((n) => !n.is_read).length);
+        return;
+      }
+
+      // Fallback to Supabase if API returned empty
       const { data: { session } } = await supabase.auth.getSession();
       const currentUserId = session?.user?.id || "client-demo-id";
 
-      const { data } = await supabase
+      const { data: sbData } = await supabase
         .from("notifications")
         .select("*")
         .eq("user_id", currentUserId)
         .order("created_at", { ascending: false })
         .limit(25);
 
-      if (data && Array.isArray(data)) {
-        // Ensure every notification item has a valid title/message
-        const sanitized = data.map((n: any, idx: number) => ({
+      if (sbData && Array.isArray(sbData)) {
+        const sanitized = sbData.map((n: any, idx: number) => ({
           ...n,
           id: n.id || `NOTIF-${idx + 1}`,
           title: n.title || (n.order_id ? `تحديث الطلب #${n.order_id}` : "إشعار جديد من المنصة"),
@@ -238,7 +262,16 @@ export function NotificationsPanel() {
       e.preventDefault();
       e.stopPropagation();
     }
-    await supabase.from("notifications").update({ is_read: true }).eq("id", id);
+    try {
+      await fetch("/api/v1/notifications", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+    } catch {}
+    try {
+      await supabase.from("notifications").update({ is_read: true }).eq("id", id);
+    } catch {}
     setNotifications((prev) =>
       prev.map((n) => (n.id === id ? { ...n, is_read: true } : n))
     );
@@ -246,6 +279,13 @@ export function NotificationsPanel() {
   }
 
   async function markAllAsRead() {
+    try {
+      await fetch("/api/v1/notifications", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ all: true }),
+      });
+    } catch {}
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const currentUserId = session?.user?.id || "client-demo-id";
@@ -255,12 +295,11 @@ export function NotificationsPanel() {
         .update({ is_read: true })
         .eq("user_id", currentUserId)
         .eq("is_read", false);
-
-      setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
-      setUnreadCount(0);
     } catch (e) {
       console.error("Error marking all as read:", e);
     }
+    setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
+    setUnreadCount(0);
   }
 
   function getNotificationLink(notification: NotificationItem): string {

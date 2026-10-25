@@ -107,7 +107,52 @@ export class FleetRepository {
         localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(SEED_VEHICLES));
         return SEED_VEHICLES;
       }
-      return JSON.parse(raw);
+      let list: VehicleEntity[] = JSON.parse(raw);
+      if (!Array.isArray(list)) return SEED_VEHICLES;
+
+      // Auto-sanitize corrupted records from past failed imports
+      const sanitized = list.filter((v) => {
+        const brand = (v.brand_name || "").trim();
+        const model = (v.model_name || "").trim();
+        const plate = (v.plate_number || "").trim();
+        const vin = (v.vin || "").trim();
+
+        // Check if brand, model or plate contains instruction phrases
+        if (
+          brand.includes("تعليمات:") ||
+          brand.includes("الحقول المؤشر عليها") ||
+          brand.includes("Fleet Import") ||
+          plate.includes("تعليمات:") ||
+          plate.includes("الحقول المؤشر عليها") ||
+          model.includes("تعليمات:") ||
+          model.includes("الحقول المؤشر عليها")
+        ) {
+          return false;
+        }
+
+        // Check if fallback VIN starts with KSA and plate contains typical notes column text from failed import
+        if (
+          vin.startsWith("KSA") &&
+          (plate.includes("ملاحظات") ||
+            plate.includes("سيارة الإدارة") ||
+            plate.includes("في انتظار") ||
+            plate.includes("مركبة العمليات") ||
+            brand.includes("سيارة الإدارة") ||
+            brand.includes("في انتظار") ||
+            brand.includes("مركبة العمليات"))
+        ) {
+          return false;
+        }
+
+        return true;
+      });
+
+      if (sanitized.length !== list.length) {
+        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(sanitized));
+        list = sanitized;
+      }
+
+      return list;
     } catch (e) {
       return SEED_VEHICLES;
     }
@@ -408,6 +453,18 @@ export class FleetRepository {
     const currentYear = new Date().getFullYear();
 
     for (const item of cmd.vehicles) {
+      // Guard against instruction banners or corrupted items
+      const bCheck = (item.brand_name || "").trim();
+      const pCheck = (item.plate_number || "").trim();
+      if (
+        bCheck.includes("تعليمات:") ||
+        bCheck.includes("الحقول المؤشر عليها") ||
+        pCheck.includes("تعليمات:") ||
+        pCheck.includes("الحقول المؤشر عليها")
+      ) {
+        continue;
+      }
+
       let vin = normalizeVin(item.vin);
       if (!vin) {
         vin = `KSA${Date.now().toString().slice(-6)}${Math.random().toString(36).substring(2, 6).toUpperCase()}${item.row_number || 1}`;

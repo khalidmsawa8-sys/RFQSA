@@ -7,7 +7,7 @@
     "car_year": 2023,
     "plate_number": "ت ل ف 336",
     "vin": "1GCEC19X4DZ115309",
-    "status": "open",
+    "status": "cancelled",
     "parts_description": "[{\"partName\":\"صدام خلفي\",\"quantity\":1,\"partType\":\"original\",\"isUrgent\":false,\"deliveryLocation\":\"فرع جدة - طريق المدينة - حي الروضة\"},{\"partName\":\"باب شنطة\",\"quantity\":1,\"partType\":\"original\",\"isUrgent\":false,\"deliveryLocation\":\"فرع جدة - طريق المدينة - حي الروضة\"},{\"partName\":\"اسطب خلفي يسار\",\"quantity\":1,\"partType\":\"original\",\"isUrgent\":false,\"deliveryLocation\":\"فرع جدة - طريق المدينة - حي الروضة\"},{\"partName\":\"اسطب خلفي يمين\",\"quantity\":1,\"partType\":\"original\",\"isUrgent\":false,\"deliveryLocation\":\"فرع جدة - طريق المدينة - حي الروضة\"}]",
     "delivery_location": "فرع جدة - طريق المدينة - حي الروضة",
     "delivery_city": "جدة",
@@ -17,7 +17,8 @@
       "full_name": "شركة المشتريات الوطنية",
       "company_name": "شركة المشتريات الوطنية",
       "phone": "0559876543"
-    }
+    },
+    "expires_at": "2026-08-22T14:50:00.000Z"
   },
   {
     "id": "RFQ-8412",
@@ -27,7 +28,7 @@
     "car_year": 2023,
     "plate_number": "أ ب ج 1234",
     "vin": "JTEBU5JR8K5092141",
-    "status": "quoted",
+    "status": "cancelled",
     "parts_description": "[{\"partName\":\"صدام أمامي أصلي\",\"quantity\":1,\"partType\":\"original\",\"partNumber\":\"52119-0X900\",\"isUrgent\":true,\"rfqType\":\"public\",\"deliveryLocation\":\"الرياض - حي الملز\",\"recipientName\":\"أحمد المنصور\",\"recipientPhone\":\"0501234567\"}]",
     "delivery_location": "الرياض - حي الملز",
     "delivery_city": "الرياض",
@@ -61,7 +62,8 @@
     "client": {
       "full_name": "شركة المشتريات الوطنية",
       "company_name": "شركة المشتريات الوطنية"
-    }
+    },
+    "expires_at": "2026-08-20T06:50:00.000Z"
   },
   {
     "id": "RFQ-7320",
@@ -71,7 +73,7 @@
     "car_year": 2024,
     "plate_number": "د هـ و 5678",
     "vin": "KMHE341CBLA109842",
-    "status": "open",
+    "status": "cancelled",
     "parts_description": "[{\"partName\":\"شمعة إضاءة أمامية يمين Full LED\",\"quantity\":1,\"partType\":\"original\",\"isUrgent\":false,\"rfqType\":\"public\",\"deliveryLocation\":\"جدة - حي الصفا\",\"recipientName\":\"م. خالد الغامدي\",\"recipientPhone\":\"0559876543\"},{\"partName\":\"شبك أمامي نيكل\",\"quantity\":1,\"partType\":\"commercial\"}]",
     "delivery_location": "جدة - حي الصفا",
     "delivery_city": "جدة",
@@ -80,7 +82,8 @@
     "client": {
       "full_name": "شركة المشتريات الوطنية",
       "company_name": "شركة المشتريات الوطنية"
-    }
+    },
+    "expires_at": "2026-08-20T04:35:00.000Z"
   },
   {
     "id": "RFQ-6190",
@@ -90,7 +93,7 @@
     "car_year": 2022,
     "plate_number": "ر ز س 9012",
     "vin": "JN8AZ2NC7M9203114",
-    "status": "quoted",
+    "status": "cancelled",
     "parts_description": "[{\"partName\":\"مساعدات هيدروليك أمامية وخلفية\",\"quantity\":4,\"partType\":\"original\",\"isUrgent\":true,\"rfqType\":\"direct\",\"targetVendorName\":\"مؤسسة قطع الغيار المعتمدة\",\"deliveryLocation\":\"الدمام - طريق الملك فهد\",\"recipientName\":\"سعود العتيبي\",\"recipientPhone\":\"0561122334\"}]",
     "delivery_location": "الدمام - طريق الملك فهد",
     "delivery_city": "الدمام",
@@ -112,7 +115,8 @@
     "client": {
       "full_name": "شركة المشتريات الوطنية",
       "company_name": "شركة المشتريات الوطنية"
-    }
+    },
+    "expires_at": "2026-08-19T22:20:00.000Z"
   },
   {
     "id": "RFQ-4102",

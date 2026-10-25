@@ -43,6 +43,18 @@ import {
   FileText,
   Copy,
   ExternalLink,
+  Mail,
+  Send,
+  ShieldCheck,
+  AtSign,
+  Globe2,
+  MessageCircle,
+  MessageSquare,
+  Calculator,
+  Wallet,
+  Coins,
+  Scale,
+  ArrowRightLeft,
 } from "lucide-react";
 import { Loader2 } from "lucide-react";
 
@@ -111,7 +123,7 @@ function formatMinutesArabic(totalMinutes: number): string {
 }
 
 export default function AdminSettingsPage() {
-  const [activeTab, setActiveTab] = useState<"general" | "profile" | "server" | "data">("general");
+  const [activeTab, setActiveTab] = useState<"general" | "email" | "whatsapp" | "profile" | "server" | "data">("general");
   const [metrics, setMetrics] = useState<SystemMetrics | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -129,7 +141,13 @@ export default function AdminSettingsPage() {
   const [platformPolicies, setPlatformPolicies] = useState({
     maintenance_mode: false,
     maintenance_message: "الموقع يخضع حالياً لأعمال صيانة وترقية مجدولة لخدمتكم بشكل أفضل، وسنعود للعمل خلال دقائق.",
-    platform_commission_percent: 5,
+    platform_commission_percent: 3,
+    client_platform_fee_percent: 3,
+    vendor_platform_fee_percent: 3,
+    fee_calculation_basis: "parts_before_vat",
+    client_fee_label: "رسوم المنصة",
+    auto_wallet_settlement: true,
+    separate_platform_fee_transactions: true,
     vat_percent: 15,
     cr_number: "1010789456",
     vat_number: "310987654300003",
@@ -138,7 +156,52 @@ export default function AdminSettingsPage() {
     allow_customer_cancel_after_quotes: true,
   });
   const [isSavingPolicies, setIsSavingPolicies] = useState(false);
-  const [policiesFeedback, setPoliciesFeedback] = useState<string | null>(null);
+  const [policiesFeedback, setPoliciesFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
+
+  // Live Financial Simulator State (محاكي التسوية المالية المباشر)
+  const [simPartsAmount, setSimPartsAmount] = useState<number>(100);
+  const [simDeliveryFee, setSimDeliveryFee] = useState<number>(25);
+
+  // SMTP Email Server Configuration State (Encrypted Credentials)
+  const [smtpConfig, setSmtpConfig] = useState({
+    smtp_enabled: false,
+    smtp_host: "smtp.gmail.com",
+    smtp_port: 587,
+    smtp_user: "",
+    smtp_password: "",
+    smtp_from_name: "منصة RFQ السعودية",
+    smtp_from_email: "notifications@rfq-sa.com",
+    smtp_secure: false,
+  });
+  const [smtpHasPasswordSaved, setSmtpHasPasswordSaved] = useState(false);
+  const [showSmtpPassword, setShowSmtpPassword] = useState(false);
+  const [isSavingSmtp, setIsSavingSmtp] = useState(false);
+  const [smtpFeedback, setSmtpFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
+
+  // Test Email State
+  const [testEmailRecipient, setTestEmailRecipient] = useState("");
+  const [isTestingSmtp, setIsTestingSmtp] = useState(false);
+  const [testSmtpFeedback, setTestSmtpFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
+
+  // WhatsApp Gateway Configuration State (Encrypted AES-256-GCM)
+  const [whatsappConfig, setWhatsappConfig] = useState({
+    whatsapp_enabled: false,
+    whatsapp_provider: "meta" as "meta" | "ultramsg" | "twilio" | "custom",
+    whatsapp_api_url: "https://graph.facebook.com/v20.0",
+    whatsapp_phone_number_id: "",
+    whatsapp_api_token: "",
+    whatsapp_auto_order_updates: true,
+    whatsapp_from_phone: "+966500000000",
+  });
+  const [whatsappHasTokenSaved, setWhatsappHasTokenSaved] = useState(false);
+  const [showWhatsappToken, setShowWhatsappToken] = useState(false);
+  const [isSavingWhatsapp, setIsSavingWhatsapp] = useState(false);
+  const [whatsappFeedback, setWhatsappFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
+
+  // Test WhatsApp State
+  const [testWhatsappRecipient, setTestWhatsappRecipient] = useState("");
+  const [isTestingWhatsapp, setIsTestingWhatsapp] = useState(false);
+  const [testWhatsappFeedback, setTestWhatsappFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
 
   // Admin Profile Edit State
   const [adminForm, setAdminForm] = useState({
@@ -181,7 +244,17 @@ export default function AdminSettingsPage() {
           setPlatformPolicies({
             maintenance_mode: Boolean(data.settings.maintenance_mode),
             maintenance_message: data.settings.maintenance_message || platformPolicies.maintenance_message,
-            platform_commission_percent: data.settings.platform_commission_percent ?? 5,
+            platform_commission_percent: data.settings.platform_commission_percent !== undefined ? Number(data.settings.platform_commission_percent) : 3,
+            client_platform_fee_percent: data.settings.client_platform_fee_percent !== undefined
+              ? Number(data.settings.client_platform_fee_percent)
+              : (data.settings.platform_commission_percent !== undefined ? Number(data.settings.platform_commission_percent) : 3),
+            vendor_platform_fee_percent: data.settings.vendor_platform_fee_percent !== undefined
+              ? Number(data.settings.vendor_platform_fee_percent)
+              : (data.settings.platform_commission_percent !== undefined ? Number(data.settings.platform_commission_percent) : 3),
+            fee_calculation_basis: data.settings.fee_calculation_basis || "parts_before_vat",
+            client_fee_label: data.settings.client_fee_label || "رسوم المنصة",
+            auto_wallet_settlement: data.settings.auto_wallet_settlement !== false,
+            separate_platform_fee_transactions: data.settings.separate_platform_fee_transactions !== false,
             vat_percent: data.settings.vat_percent ?? 15,
             cr_number: data.settings.cr_number || "1010789456",
             vat_number: data.settings.vat_number || "310987654300003",
@@ -189,6 +262,33 @@ export default function AdminSettingsPage() {
             max_quotes_per_rfq: data.settings.max_quotes_per_rfq ?? 10,
             allow_customer_cancel_after_quotes: data.settings.allow_customer_cancel_after_quotes !== false,
           });
+
+          setSmtpConfig({
+            smtp_enabled: Boolean(data.settings.smtp_enabled),
+            smtp_host: data.settings.smtp_host || "smtp.gmail.com",
+            smtp_port: Number(data.settings.smtp_port) || 587,
+            smtp_user: data.settings.smtp_user || "",
+            smtp_password: "",
+            smtp_from_name: data.settings.smtp_from_name || "منصة RFQ السعودية",
+            smtp_from_email: data.settings.smtp_from_email || "notifications@rfq-sa.com",
+            smtp_secure: Boolean(data.settings.smtp_secure),
+          });
+          setSmtpHasPasswordSaved(
+            Boolean(data.settings.smtp_password_configured)
+          );
+
+          setWhatsappConfig({
+            whatsapp_enabled: Boolean(data.settings.whatsapp_enabled),
+            whatsapp_provider: data.settings.whatsapp_provider || "meta",
+            whatsapp_api_url: data.settings.whatsapp_api_url || "https://graph.facebook.com/v20.0",
+            whatsapp_phone_number_id: data.settings.whatsapp_phone_number_id || "",
+            whatsapp_api_token: "",
+            whatsapp_auto_order_updates: data.settings.whatsapp_auto_order_updates !== false,
+            whatsapp_from_phone: data.settings.whatsapp_from_phone || "+966500000000",
+          });
+          setWhatsappHasTokenSaved(
+            Boolean(data.settings.whatsapp_token_configured)
+          );
         }
         if (data.admin_profile) {
           setAdminForm({
@@ -274,18 +374,232 @@ export default function AdminSettingsPage() {
     try {
       const res = await fetch("/api/v1/admin/settings", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-admin-request": "true",
+        },
         body: JSON.stringify(platformPolicies),
       });
       const data = await res.json();
       if (res.ok && data.success) {
-        setPoliciesFeedback("تم حفظ سياسات وضوابط المنصة بنجاح وتفعيلها في كافة العمليات.");
-        setTimeout(() => setPoliciesFeedback(null), 4000);
+        setPoliciesFeedback({
+          type: "success",
+          message: "تم حفظ وتفعيل سياسات المنصة المالية، الضريبة، والعمولات بنجاح في كافة المعاملات والفواتير!",
+        });
+        if (data.settings) {
+          setPlatformPolicies((prev) => ({
+            ...prev,
+            ...data.settings,
+          }));
+        }
+        loadData(false);
+        setTimeout(() => setPoliciesFeedback(null), 5000);
+      } else {
+        setPoliciesFeedback({
+          type: "error",
+          message: data.error || "فشل حفظ سياسات المنصة المالية",
+        });
       }
-    } catch (e) {
-      console.error(e);
+    } catch (err: any) {
+      console.error(err);
+      setPoliciesFeedback({
+        type: "error",
+        message: err?.message || "فشل الاتصال بالخادم",
+      });
     } finally {
       setIsSavingPolicies(false);
+    }
+  };
+
+  // 2.1. Save SMTP Configuration (Encrypted Server-Side)
+  const handleSaveSmtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSavingSmtp(true);
+    setSmtpFeedback(null);
+    try {
+      const payload: any = {
+        smtp_enabled: smtpConfig.smtp_enabled,
+        smtp_host: smtpConfig.smtp_host,
+        smtp_port: smtpConfig.smtp_port,
+        smtp_user: smtpConfig.smtp_user,
+        smtp_from_name: smtpConfig.smtp_from_name,
+        smtp_from_email: smtpConfig.smtp_from_email,
+        smtp_secure: smtpConfig.smtp_secure,
+      };
+
+      // Only pass password if admin explicitly typed a new one
+      if (smtpConfig.smtp_password && smtpConfig.smtp_password.trim().length > 0) {
+        payload.smtp_password = smtpConfig.smtp_password.trim();
+      }
+
+      const res = await fetch("/api/v1/admin/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setSmtpFeedback({
+          type: "success",
+          message: "تم حفظ إعدادات خادم البريد وتشفير كلمة المرور في السيرفر بنجاح (AES-256-GCM)!",
+        });
+        setSmtpConfig((prev) => ({ ...prev, smtp_password: "" }));
+        loadData(false);
+        setTimeout(() => setSmtpFeedback(null), 5000);
+      } else {
+        setSmtpFeedback({
+          type: "error",
+          message: data.error || "فشل حفظ إعدادات البريد",
+        });
+      }
+    } catch (err: any) {
+      setSmtpFeedback({
+        type: "error",
+        message: err?.message || "فشل الاتصال بالسيرفر",
+      });
+    } finally {
+      setIsSavingSmtp(false);
+    }
+  };
+
+  // 2.2. Test SMTP Connection & Send Verification Mail
+  const handleTestSmtp = async () => {
+    if (!smtpConfig.smtp_host || !smtpConfig.smtp_user) {
+      setTestSmtpFeedback({
+        type: "error",
+        message: "يرجى إدخال عنوان خادم SMTP والبريد الإلكتروني للبدء بالفحص.",
+      });
+      return;
+    }
+    setIsTestingSmtp(true);
+    setTestSmtpFeedback(null);
+    try {
+      const res = await fetch("/api/v1/admin/settings/test-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          smtp_host: smtpConfig.smtp_host,
+          smtp_port: smtpConfig.smtp_port,
+          smtp_user: smtpConfig.smtp_user,
+          smtp_password: smtpConfig.smtp_password,
+          smtp_secure: smtpConfig.smtp_secure,
+          target_email: testEmailRecipient.trim() || smtpConfig.smtp_user,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setTestSmtpFeedback({
+          type: "success",
+          message: data.message || "تم اختبار الاتصال بنجاح!",
+        });
+      } else {
+        setTestSmtpFeedback({
+          type: "error",
+          message: data.error || "فشل الاتصال بخادم البريد، يرجى مراجعة البيانات.",
+        });
+      }
+    } catch (err: any) {
+      setTestSmtpFeedback({
+        type: "error",
+        message: err?.message || "حدث خطأ أثناء فحص خادم البريد.",
+      });
+    } finally {
+      setIsTestingSmtp(false);
+    }
+  };
+
+  // 2.3. Save WhatsApp Configuration (Encrypted AES-256-GCM Server-Side)
+  const handleSaveWhatsapp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSavingWhatsapp(true);
+    setWhatsappFeedback(null);
+    try {
+      const payload: any = {
+        whatsapp_enabled: whatsappConfig.whatsapp_enabled,
+        whatsapp_provider: whatsappConfig.whatsapp_provider,
+        whatsapp_api_url: whatsappConfig.whatsapp_api_url,
+        whatsapp_phone_number_id: whatsappConfig.whatsapp_phone_number_id,
+        whatsapp_auto_order_updates: whatsappConfig.whatsapp_auto_order_updates,
+        whatsapp_from_phone: whatsappConfig.whatsapp_from_phone,
+      };
+
+      if (whatsappConfig.whatsapp_api_token && whatsappConfig.whatsapp_api_token.trim().length > 0) {
+        payload.whatsapp_api_token = whatsappConfig.whatsapp_api_token.trim();
+      }
+
+      const res = await fetch("/api/v1/admin/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setWhatsappFeedback({
+          type: "success",
+          message: "تم حفظ إعدادات بوابة واتساب وتشفير رمز الوصول بنجاح (AES-256-GCM)!",
+        });
+        setWhatsappConfig((prev) => ({ ...prev, whatsapp_api_token: "" }));
+        loadData(false);
+        setTimeout(() => setWhatsappFeedback(null), 5000);
+      } else {
+        setWhatsappFeedback({
+          type: "error",
+          message: data.error || "فشل حفظ إعدادات واتساب",
+        });
+      }
+    } catch (err: any) {
+      setWhatsappFeedback({
+        type: "error",
+        message: err?.message || "فشل الاتصال بالسيرفر",
+      });
+    } finally {
+      setIsSavingWhatsapp(false);
+    }
+  };
+
+  // 2.4. Test WhatsApp Connection & Send Live Verification Message
+  const handleTestWhatsapp = async () => {
+    if (!testWhatsappRecipient) {
+      setTestWhatsappFeedback({
+        type: "error",
+        message: "يرجى إدخال رقم هاتف المستلم لفحص وصول الرسالة (مثال: 0501234567 أو 966501234567).",
+      });
+      return;
+    }
+    setIsTestingWhatsapp(true);
+    setTestWhatsappFeedback(null);
+    try {
+      const res = await fetch("/api/v1/admin/settings/test-whatsapp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          provider: whatsappConfig.whatsapp_provider,
+          api_url: whatsappConfig.whatsapp_api_url,
+          phone_number_id: whatsappConfig.whatsapp_phone_number_id,
+          api_token: whatsappConfig.whatsapp_api_token,
+          from_phone: whatsappConfig.whatsapp_from_phone,
+          target_phone: testWhatsappRecipient.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setTestWhatsappFeedback({
+          type: "success",
+          message: data.message || "تم إرسال رسالة الاختبار بنجاح إلى رقم الواتساب!",
+        });
+      } else {
+        setTestWhatsappFeedback({
+          type: "error",
+          message: data.error || "فشل إرسال رسالة الواتساب، يرجى مراجعة إعدادات البوابة والرمز السري.",
+        });
+      }
+    } catch (err: any) {
+      setTestWhatsappFeedback({
+        type: "error",
+        message: err?.message || "حدث خطأ أثناء فحص بوابة الواتساب.",
+      });
+    } finally {
+      setIsTestingWhatsapp(false);
     }
   };
 
@@ -407,6 +721,27 @@ export default function AdminSettingsPage() {
     { label: "2880 دقيقة (48 ساعة)", val: 2880 },
   ];
 
+  // Financial Simulator Calculations (المواصفة النهائية لرسوم المنصة)
+  const simClientFeePct = Number(platformPolicies.client_platform_fee_percent) || 0;
+  const simVendorFeePct = Number(platformPolicies.vendor_platform_fee_percent) || 0;
+  const simVatPct = Number(platformPolicies.vat_percent) || 15;
+  const validSimParts = Math.max(0, Number(simPartsAmount) || 0);
+  const validSimDelivery = Math.max(0, Number(simDeliveryFee) || 0);
+
+  const calcClientFee = Math.round((validSimParts * (simClientFeePct / 100)) * 100) / 100;
+  const calcVendorFee = Math.round((validSimParts * (simVendorFeePct / 100)) * 100) / 100;
+  const calcVatOnParts = Math.round((validSimParts * (simVatPct / 100)) * 100) / 100;
+  const calcSubtotalBeforeVat = Math.round((validSimParts + calcClientFee) * 100) / 100;
+  const calcClientTotal = Math.round((validSimParts + calcClientFee + calcVatOnParts + validSimDelivery) * 100) / 100;
+
+  const calcVendorNetParts = Math.round((validSimParts - calcVendorFee) * 100) / 100;
+  const calcVendorPayout = Math.round((calcVendorNetParts + calcVatOnParts) * 100) / 100;
+  const calcPlatformRevenue = Math.round((calcClientFee + calcVendorFee) * 100) / 100;
+  const calcCourierPayout = validSimDelivery;
+
+  const calcTotalDisbursed = Math.round((calcVendorPayout + calcPlatformRevenue + calcCourierPayout) * 100) / 100;
+  const isZeroLeakage = Math.abs(calcTotalDisbursed - calcClientTotal) < 0.001;
+
   if (isLoading) {
     return (
       <div className="min-h-[60vh] flex flex-col items-center justify-center gap-3">
@@ -456,6 +791,8 @@ export default function AdminSettingsPage() {
       <div className="flex items-center gap-2 p-1.5 bg-slate-100/80 rounded-2xl border border-slate-200/80 overflow-x-auto">
         {[
           { key: "general", label: "الإعدادات العامة والطلبات", icon: SlidersHorizontal, count: null },
+          { key: "email", label: "خادم البريد الإلكتروني (SMTP)", icon: Mail, count: smtpConfig.smtp_enabled ? "مفعل" : null },
+          { key: "whatsapp", label: "بوابة واتساب (WhatsApp API)", icon: MessageSquare, count: whatsappConfig.whatsapp_enabled ? "مفعل" : null },
           { key: "profile", label: "إدارة حساب المشرف والأمان", icon: Shield, count: null },
           { key: "server", label: "صحة الخادم والبنية السحابية", icon: Server, count: "مباشر" },
           { key: "data", label: "إحصائيات المنصة والنسخ الاحتياطي", icon: Database, count: null },
@@ -634,84 +971,528 @@ export default function AdminSettingsPage() {
             </CardContent>
           </Card>
 
-          {/* B. PLATFORM BUSINESS POLICIES & TAX */}
-          <Card className="border border-slate-200 shadow-sm rounded-3xl overflow-hidden bg-white">
-            <CardHeader className="p-6 border-b border-slate-100 bg-slate-50/50">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-violet-600 text-white flex items-center justify-center shadow-sm">
-                  <Receipt className="w-5 h-5" />
+          {/* B. PLATFORM BUSINESS POLICIES & TAX - COMPREHENSIVE FEE GOVERNANCE */}
+          <Card className="border-2 border-slate-200/90 shadow-xl rounded-3xl overflow-hidden bg-white">
+            <CardHeader className="p-6 md:p-8 border-b border-slate-100 bg-gradient-to-r from-slate-50 via-indigo-50/20 to-slate-50">
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                <div className="flex items-center gap-3.5">
+                  <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-indigo-600 to-violet-700 text-white flex items-center justify-center shadow-lg shadow-indigo-600/30">
+                    <Coins className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2.5 flex-wrap">
+                      <CardTitle className="text-xl font-black text-slate-900">
+                        حوكمة رسوم المنصة والسياسات المالية (المواصفة النهائية المعتمدة)
+                      </CardTitle>
+                      <Badge className="bg-emerald-600 text-white font-black text-[10px] px-2.5 py-0.5 rounded-full">
+                        المواصفة الرسمية المعتمدة
+                      </Badge>
+                      <Badge className="bg-indigo-50 text-indigo-700 border border-indigo-200 font-black text-[10px] px-2.5 py-0.5 rounded-full">
+                        صفر تسريب مالي Zero-Leakage
+                      </Badge>
+                    </div>
+                    <CardDescription className="text-slate-500 text-xs font-bold mt-1">
+                      التحكم المركزي في نسب رسوم العملاء والموردين، الفوترة الضريبية (ZATCA)، حوكمة المحافظ، ومحاكي التسوية الفورية
+                    </CardDescription>
+                  </div>
                 </div>
-                <div>
-                  <CardTitle className="text-lg font-black text-slate-900">
-                    السياسات المالية والضرائب وعمولات المنصة
-                  </CardTitle>
-                  <CardDescription className="text-slate-500 text-xs font-bold">
-                    إعدادات فوترة الصفقات، نسبة ضريبة القيمة المضافة (ZATCA)، والرسوم التشغيلية
-                  </CardDescription>
+
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-black text-slate-500 bg-white border border-slate-200 px-3 py-1.5 rounded-xl shadow-xs">
+                    تطبيق آلي على كافة المعاملات
+                  </span>
                 </div>
               </div>
             </CardHeader>
 
-            <CardContent className="p-6 md:p-8">
-              <form onSubmit={handleSavePolicies} className="space-y-6">
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-                  <div className="space-y-2">
-                    <label className="text-xs font-black text-slate-700">عمولة المنصة من الصفقات (%)</label>
-                    <div className="relative">
+            <CardContent className="p-6 md:p-8 space-y-8">
+              <form onSubmit={handleSavePolicies} className="space-y-8">
+                {/* ── SECTION 1: UNIFORM FEE RATES & BASIS ── */}
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
+                    <Scale className="w-4 h-4 text-indigo-600" />
+                    <h3 className="text-sm font-black text-slate-900">1. آلية احتساب الرسوم والنسب الموحدة</h3>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+                    {/* Client Fee % */}
+                    <div className="space-y-2">
+                      <label className="text-xs font-black text-slate-700 flex items-center justify-between">
+                        <span>نسبة رسوم العميل (%)</span>
+                        <span className="text-[10px] text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full font-black">
+                          تُضاف لقيمة القطع
+                        </span>
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          min="0"
+                          max="100"
+                          step="0.5"
+                          value={platformPolicies.client_platform_fee_percent ?? 3}
+                          onChange={(e) => {
+                            const val = parseFloat(e.target.value) || 0;
+                            setPlatformPolicies({
+                              ...platformPolicies,
+                              client_platform_fee_percent: val,
+                              platform_commission_percent: val,
+                            });
+                          }}
+                          className="w-full h-12 px-4 pl-10 rounded-2xl border-2 border-slate-200 text-base font-black text-slate-900 focus:outline-none focus:border-indigo-600 focus:ring-4 focus:ring-indigo-50 transition-all shadow-xs"
+                          required
+                        />
+                        <Percent className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                      </div>
+                      <p className="text-[11px] text-slate-500 font-semibold leading-relaxed">
+                        تُحتسب على قيمة القطع قبل ضريبة القيمة المضافة
+                      </p>
+                    </div>
+
+                    {/* Vendor Fee % */}
+                    <div className="space-y-2">
+                      <label className="text-xs font-black text-slate-700 flex items-center justify-between">
+                        <span>نسبة رسوم المورد (%)</span>
+                        <span className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full font-black">
+                          تُخصم من مستحقاته
+                        </span>
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          min="0"
+                          max="100"
+                          step="0.5"
+                          value={platformPolicies.vendor_platform_fee_percent ?? 5}
+                          onChange={(e) =>
+                            setPlatformPolicies({
+                              ...platformPolicies,
+                              vendor_platform_fee_percent: parseFloat(e.target.value) || 0,
+                            })
+                          }
+                          className="w-full h-12 px-4 pl-10 rounded-2xl border-2 border-slate-200 text-base font-black text-slate-900 focus:outline-none focus:border-indigo-600 focus:ring-4 focus:ring-indigo-50 transition-all shadow-xs"
+                          required
+                        />
+                        <Percent className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                      </div>
+                      <p className="text-[11px] text-slate-500 font-semibold leading-relaxed">
+                        تُخصم من قيمة القطع ولا تظهر بفاتورة العميل
+                      </p>
+                    </div>
+
+                    {/* Client Fee Label on Invoices */}
+                    <div className="space-y-2">
+                      <label className="text-xs font-black text-slate-700 flex items-center justify-between">
+                        <span>مسمى بند الرسوم في الفاتورة</span>
+                        <span className="text-[10px] text-slate-500 font-mono">فاتورة العميل</span>
+                      </label>
                       <input
-                        type="number"
-                        min="0"
-                        max="100"
-                        step="0.5"
-                        value={platformPolicies.platform_commission_percent}
+                        type="text"
+                        value={platformPolicies.client_fee_label || "رسوم المنصة"}
                         onChange={(e) =>
-                          setPlatformPolicies({ ...platformPolicies, platform_commission_percent: parseFloat(e.target.value) || 0 })
+                          setPlatformPolicies({ ...platformPolicies, client_fee_label: e.target.value })
                         }
-                        className="w-full h-12 px-4 pl-10 rounded-xl border border-slate-200 text-sm font-black focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
+                        placeholder="رسوم المنصة"
+                        className="w-full h-12 px-4 rounded-2xl border-2 border-slate-200 text-sm font-black text-slate-900 focus:outline-none focus:border-indigo-600 focus:ring-4 focus:ring-indigo-50 transition-all shadow-xs"
+                        required
                       />
-                      <Percent className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                      <p className="text-[11px] text-slate-500 font-semibold leading-relaxed">
+                        المسمى الرسمي الذي يظهر في فاتورة العميل الضريبية وملخص السلة
+                      </p>
+                    </div>
+
+                    {/* Fee Calculation Basis */}
+                    <div className="space-y-2">
+                      <label className="text-xs font-black text-slate-700 flex items-center justify-between">
+                        <span>أساس احتساب الرسوم</span>
+                        <span className="text-[10px] text-amber-700 bg-amber-50 px-2 py-0.5 rounded font-black">
+                          قاعدة ملزمة
+                        </span>
+                      </label>
+                      <div className="h-12 px-4 rounded-2xl border-2 border-slate-200 bg-slate-50 flex items-center justify-between text-xs font-black text-slate-800 shadow-xs">
+                        <span>قيمة القطع قبل الضريبة</span>
+                        <Badge className="bg-slate-200 text-slate-700 text-[10px]">استبعاد الشحن والتوصيل</Badge>
+                      </div>
+                      <p className="text-[11px] text-slate-500 font-semibold leading-relaxed">
+                        تطبيقاً للأصول المالية، تستثنى رسوم الشحن والتوصيل تماماً من العمولة
+                      </p>
                     </div>
                   </div>
 
-                  <div className="space-y-2">
-                    <label className="text-xs font-black text-slate-700">ضريبة القيمة المضافة VAT (%)</label>
-                    <div className="relative">
-                      <input
-                        type="number"
-                        min="0"
-                        max="100"
-                        value={platformPolicies.vat_percent}
-                        onChange={(e) =>
-                          setPlatformPolicies({ ...platformPolicies, vat_percent: parseFloat(e.target.value) || 0 })
-                        }
-                        className="w-full h-12 px-4 pl-10 rounded-xl border border-slate-200 text-sm font-black focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
-                      />
-                      <Percent className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  {/* 4 Pillars Guarantees Cards */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-2">
+                    <div className="p-4 rounded-2xl bg-blue-50/70 border border-blue-200/80 space-y-1.5">
+                      <div className="flex items-center gap-2 text-blue-900 font-black text-xs">
+                        <Scale className="w-4 h-4 text-blue-600 shrink-0" />
+                        <span>نسبة موحدة لجميع الأطراف</span>
+                      </div>
+                      <p className="text-[11px] text-blue-950 font-semibold leading-relaxed">
+                        لا يُسمح بتخصيص نسب مختلفة لعملاء أو موردين بعينهم؛ لضمان النزاهة والعدالة التنافسية.
+                      </p>
                     </div>
-                  </div>
 
-                  <div className="space-y-2">
-                    <label className="text-xs font-black text-slate-700">الرقم الضريبي للمنصة (VAT ID)</label>
-                    <input
-                      type="text"
-                      value={platformPolicies.vat_number}
-                      onChange={(e) => setPlatformPolicies({ ...platformPolicies, vat_number: e.target.value })}
-                      className="w-full h-12 px-4 rounded-xl border border-slate-200 text-sm font-mono font-bold focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
-                    />
-                  </div>
+                    <div className="p-4 rounded-2xl bg-indigo-50/70 border border-indigo-200/80 space-y-1.5">
+                      <div className="flex items-center gap-2 text-indigo-900 font-black text-xs">
+                        <Lock className="w-4 h-4 text-indigo-600 shrink-0" />
+                        <span>تجميد النسبة مع الطلب (Snapshot)</span>
+                      </div>
+                      <p className="text-[11px] text-indigo-950 font-semibold leading-relaxed">
+                        تُحفظ نسبة كل طرف مع الطلب عند إنشائه، ولا تؤثر أي تعديلات لاحقة على الطلبات السابقة.
+                      </p>
+                    </div>
 
-                  <div className="space-y-2">
-                    <label className="text-xs font-black text-slate-700">رقم السجل التجاري (CR Number)</label>
-                    <input
-                      type="text"
-                      value={platformPolicies.cr_number}
-                      onChange={(e) => setPlatformPolicies({ ...platformPolicies, cr_number: e.target.value })}
-                      className="w-full h-12 px-4 rounded-xl border border-slate-200 text-sm font-mono font-bold focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
-                    />
+                    <div className="p-4 rounded-2xl bg-emerald-50/70 border border-emerald-200/80 space-y-1.5">
+                      <div className="flex items-center gap-2 text-emerald-900 font-black text-xs">
+                        <Receipt className="w-4 h-4 text-emerald-600 shrink-0" />
+                        <span>فاتورة العميل المستقلة</span>
+                      </div>
+                      <p className="text-[11px] text-emerald-950 font-semibold leading-relaxed">
+                        تظهر الرسوم في فاتورة العميل كبند مستقل باسم «{platformPolicies.client_fee_label || "رسوم المنصة"}» قبل احتساب الضريبة.
+                      </p>
+                    </div>
+
+                    <div className="p-4 rounded-2xl bg-purple-50/70 border border-purple-200/80 space-y-1.5">
+                      <div className="flex items-center gap-2 text-purple-900 font-black text-xs">
+                        <ShieldCheck className="w-4 h-4 text-purple-600 shrink-0" />
+                        <span>امتثال الزكاة والضريبة (ZATCA)</span>
+                      </div>
+                      <p className="text-[11px] text-purple-950 font-semibold leading-relaxed">
+                        رسوم المورد تُخصم من مستحقاته ولا تظهر بفاتورة العميل، ولا تفرض ضريبة إضافية داخل فاتورة المورد.
+                      </p>
+                    </div>
                   </div>
                 </div>
 
-                {/* Toggles */}
+                {/* ── SECTION 2: TAX IDENTIFIERS & CR ── */}
+                <div className="space-y-4 pt-4 border-t border-slate-100">
+                  <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
+                    <Receipt className="w-4 h-4 text-violet-600" />
+                    <h3 className="text-sm font-black text-slate-900">2. المعرفات الضريبية والتجارية للمنصة (ZATCA)</h3>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+                    <div className="space-y-2">
+                      <label className="text-xs font-black text-slate-700">نسبة ضريبة القيمة المضافة VAT (%)</label>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          min="0"
+                          max="100"
+                          value={platformPolicies.vat_percent}
+                          onChange={(e) =>
+                            setPlatformPolicies({ ...platformPolicies, vat_percent: parseFloat(e.target.value) || 0 })
+                          }
+                          className="w-full h-12 px-4 pl-10 rounded-2xl border-2 border-slate-200 text-base font-black text-slate-900 focus:outline-none focus:border-indigo-600 focus:ring-4 focus:ring-indigo-50 shadow-xs"
+                          required
+                        />
+                        <Percent className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="text-xs font-black text-slate-700">الرقم الضريبي للمنصة (VAT ID)</label>
+                      <input
+                        type="text"
+                        value={platformPolicies.vat_number}
+                        onChange={(e) => setPlatformPolicies({ ...platformPolicies, vat_number: e.target.value })}
+                        className="w-full h-12 px-4 rounded-2xl border-2 border-slate-200 text-sm font-mono font-black text-slate-900 focus:outline-none focus:border-indigo-600 focus:ring-4 focus:ring-indigo-50 shadow-xs"
+                        required
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="text-xs font-black text-slate-700">رقم السجل التجاري (CR Number)</label>
+                      <input
+                        type="text"
+                        value={platformPolicies.cr_number}
+                        onChange={(e) => setPlatformPolicies({ ...platformPolicies, cr_number: e.target.value })}
+                        className="w-full h-12 px-4 rounded-2xl border-2 border-slate-200 text-sm font-mono font-black text-slate-900 focus:outline-none focus:border-indigo-600 focus:ring-4 focus:ring-indigo-50 shadow-xs"
+                        required
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* ── SECTION 3: WALLET & FINANCIAL SETTLEMENTS ── */}
+                <div className="space-y-4 pt-4 border-t border-slate-100">
+                  <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
+                    <Wallet className="w-4 h-4 text-emerald-600" />
+                    <h3 className="text-sm font-black text-slate-900">3. تسوية المحافظ والحسابات المالية</h3>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <label className="flex items-start gap-3.5 p-4.5 rounded-2xl border-2 border-slate-200/80 hover:border-emerald-300 hover:bg-emerald-50/20 cursor-pointer transition-all">
+                      <input
+                        type="checkbox"
+                        checked={platformPolicies.auto_wallet_settlement !== false}
+                        onChange={(e) =>
+                          setPlatformPolicies({ ...platformPolicies, auto_wallet_settlement: e.target.checked })
+                        }
+                        className="w-5 h-5 rounded text-emerald-600 focus:ring-emerald-500 mt-0.5"
+                      />
+                      <div className="space-y-1">
+                        <p className="text-xs font-black text-slate-900">تفعيل التسوية الآلية للمحافظ عند اكتمال الدفع</p>
+                        <p className="text-[11px] text-slate-500 font-semibold leading-relaxed">
+                          عند نجاح سداد العميل، يقوم النظام فورياً بتوزيع المستحقات إلى محفظة المورد، محفظة شركة الشحن/المندوب، ومحفظة عمولات المنصة بدون تدخل بشري.
+                        </p>
+                      </div>
+                    </label>
+
+                    <label className="flex items-start gap-3.5 p-4.5 rounded-2xl border-2 border-slate-200/80 hover:border-indigo-300 hover:bg-indigo-50/20 cursor-pointer transition-all">
+                      <input
+                        type="checkbox"
+                        checked={platformPolicies.separate_platform_fee_transactions !== false}
+                        onChange={(e) =>
+                          setPlatformPolicies({
+                            ...platformPolicies,
+                            separate_platform_fee_transactions: e.target.checked,
+                          })
+                        }
+                        className="w-5 h-5 rounded text-indigo-600 focus:ring-indigo-500 mt-0.5"
+                      />
+                      <div className="space-y-1">
+                        <p className="text-xs font-black text-slate-900">تسجيل رسوم المنصة كمعاملتين منفصلتين في المحفظة</p>
+                        <p className="text-[11px] text-slate-500 font-semibold leading-relaxed">
+                          إيداع رسوم المنصة بقيدين مستقلين: قيد 1 (رسوم العميل: <span className="font-mono text-[10px]">SETTLE-order-PLATFORM-CLIENT</span>) وقيد 2 (رسوم المورد: <span className="font-mono text-[10px]">SETTLE-order-PLATFORM-VENDOR</span>) للتدقيق المالي الشفاف.
+                        </p>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+
+                {/* ── SECTION 4: LIVE INTERACTIVE FINANCIAL SIMULATOR ── */}
+                <div className="p-6 md:p-7 rounded-3xl bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 text-white shadow-2xl border border-indigo-800/40 space-y-6 relative overflow-hidden">
+                  <div className="absolute right-0 top-0 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
+
+                  {/* Simulator Header */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-indigo-800/50 relative z-10">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-indigo-500/20 border border-indigo-400/30 text-indigo-300 flex items-center justify-center">
+                        <Calculator className="w-5 h-5 text-indigo-400" />
+                      </div>
+                      <div>
+                        <h4 className="text-base font-black text-white">
+                          محاكي التسوية المالية المباشر (Live Financial Simulator)
+                        </h4>
+                        <p className="text-xs text-indigo-200/80 font-semibold mt-0.5">
+                          اختبر أي مبلغ للقطع واشهد توزيع الأموال الدقيق بنسبة الصفر تسريب مالي لحظياً
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 text-xs font-black px-3 py-1 rounded-xl">
+                        حساب حي متصل بالنسب المدخلة
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Simulator Interactive Inputs */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 relative z-10">
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold text-indigo-200">أدخل قيمة القطع للتجربة (ر.س):</label>
+                      <input
+                        type="number"
+                        min="1"
+                        step="1"
+                        value={simPartsAmount || ""}
+                        onChange={(e) => setSimPartsAmount(parseFloat(e.target.value) || 0)}
+                        placeholder="100"
+                        className="w-full h-12 px-4 rounded-xl border border-indigo-700 bg-slate-800/80 text-white font-mono font-black text-lg focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/50"
+                      />
+                      {/* Quick Presets */}
+                      <div className="flex items-center gap-1.5 pt-1">
+                        {[100, 250, 500, 1000, 2500].map((presetVal) => (
+                          <button
+                            key={presetVal}
+                            type="button"
+                            onClick={() => setSimPartsAmount(presetVal)}
+                            className={`text-[10px] font-bold px-2 py-0.5 rounded-lg border transition-all cursor-pointer ${
+                              simPartsAmount === presetVal
+                                ? "bg-indigo-600 text-white border-indigo-500 font-black shadow-xs"
+                                : "bg-slate-800/60 text-slate-300 border-slate-700 hover:bg-slate-700"
+                            }`}
+                          >
+                            {presetVal} ر.س
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold text-indigo-200">تكلفة التوصيل والشحن (ر.س):</label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="1"
+                        value={simDeliveryFee || ""}
+                        onChange={(e) => setSimDeliveryFee(parseFloat(e.target.value) || 0)}
+                        placeholder="25"
+                        className="w-full h-12 px-4 rounded-xl border border-indigo-700 bg-slate-800/80 text-white font-mono font-black text-lg focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/50"
+                      />
+                      <p className="text-[10px] text-slate-400 font-semibold pt-1">
+                        تتحول بالكامل إلى محفظة شركة التوصيل/المندوب بدون استقطاع
+                      </p>
+                    </div>
+
+                    <div className="space-y-1.5 bg-slate-800/40 border border-indigo-800/40 rounded-2xl p-3 flex flex-col justify-center">
+                      <span className="text-xs text-indigo-300 font-bold">النسب المعتمدة الحالية:</span>
+                      <div className="flex items-center justify-between text-xs font-black pt-1">
+                        <span className="text-blue-300">رسوم العميل: +{simClientFeePct}%</span>
+                        <span className="text-emerald-300">رسوم المورد: -{simVendorFeePct}%</span>
+                        <span className="text-purple-300">ضريبة: {simVatPct}%</span>
+                      </div>
+                      <span className="text-[10px] text-slate-400 font-semibold pt-1">
+                        مسمى الرسوم: «{platformPolicies.client_fee_label || "رسوم المنصة"}»
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Simulator 4-Card Breakdown */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 relative z-10">
+                    {/* Card 1: Client Checkout */}
+                    <div className="p-4 rounded-2xl bg-slate-800/80 border border-blue-500/30 space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-black text-blue-400">1. فاتورة ومدفوع العميل</span>
+                        <Receipt className="w-4 h-4 text-blue-400" />
+                      </div>
+                      <div className="space-y-1 text-xs font-semibold text-slate-300 border-t border-slate-700/60 pt-2">
+                        <div className="flex justify-between">
+                          <span>قيمة القطع:</span>
+                          <span className="font-mono font-bold text-white">{validSimParts.toFixed(2)} ر.س</span>
+                        </div>
+                        <div className="flex justify-between text-blue-300">
+                          <span>{platformPolicies.client_fee_label || "رسوم المنصة"} (+{simClientFeePct}%):</span>
+                          <span className="font-mono font-bold">+{calcClientFee.toFixed(2)} ر.س</span>
+                        </div>
+                        <div className="flex justify-between text-slate-400 text-[11px]">
+                          <span>المجموع قبل الضريبة:</span>
+                          <span className="font-mono">{calcSubtotalBeforeVat.toFixed(2)} ر.س</span>
+                        </div>
+                        <div className="flex justify-between text-purple-300">
+                          <span>ضريبة القيمة المضافة (15%):</span>
+                          <span className="font-mono font-bold">+{calcVatOnParts.toFixed(2)} ر.س</span>
+                        </div>
+                        <div className="flex justify-between text-amber-300">
+                          <span>الشحن والتوصيل:</span>
+                          <span className="font-mono font-bold">+{validSimDelivery.toFixed(2)} ر.س</span>
+                        </div>
+                      </div>
+                      <div className="pt-2 border-t border-blue-500/30 flex items-center justify-between text-sm font-black text-blue-300">
+                        <span>إجمالي مدفوع العميل:</span>
+                        <span className="font-mono text-base text-white">{calcClientTotal.toFixed(2)} ر.س</span>
+                      </div>
+                    </div>
+
+                    {/* Card 2: Vendor Wallet Deposit */}
+                    <div className="p-4 rounded-2xl bg-slate-800/80 border border-emerald-500/30 space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-black text-emerald-400">2. صافي محفظة المورد</span>
+                        <Wallet className="w-4 h-4 text-emerald-400" />
+                      </div>
+                      <div className="space-y-1 text-xs font-semibold text-slate-300 border-t border-slate-700/60 pt-2">
+                        <div className="flex justify-between">
+                          <span>قيمة القطع الأصلية:</span>
+                          <span className="font-mono font-bold text-white">{validSimParts.toFixed(2)} ر.س</span>
+                        </div>
+                        <div className="flex justify-between text-red-300">
+                          <span>خصم رسوم المنصة (-{simVendorFeePct}%):</span>
+                          <span className="font-mono font-bold">-{calcVendorFee.toFixed(2)} ر.س</span>
+                        </div>
+                        <div className="flex justify-between text-slate-400 text-[11px]">
+                          <span>صافي القطع بعد الخصم:</span>
+                          <span className="font-mono">{calcVendorNetParts.toFixed(2)} ر.س</span>
+                        </div>
+                        <div className="flex justify-between text-purple-300">
+                          <span>استرداد الضريبة (للزكاة):</span>
+                          <span className="font-mono font-bold">+{calcVatOnParts.toFixed(2)} ر.س</span>
+                        </div>
+                        <div className="text-[10px] text-slate-400 font-semibold italic pt-1">
+                          * معفي من ظهور العمولة بفاتورته للعميل
+                        </div>
+                      </div>
+                      <div className="pt-2 border-t border-emerald-500/30 flex items-center justify-between text-sm font-black text-emerald-300">
+                        <span>صافي إيداع المورد:</span>
+                        <span className="font-mono text-base text-white">{calcVendorPayout.toFixed(2)} ر.س</span>
+                      </div>
+                    </div>
+
+                    {/* Card 3: Platform Wallet (2 Transactions) */}
+                    <div className="p-4 rounded-2xl bg-slate-800/80 border border-indigo-500/30 space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-black text-indigo-400">3. محفظة عمولات المنصة</span>
+                        <Coins className="w-4 h-4 text-indigo-400" />
+                      </div>
+                      <div className="space-y-1.5 text-xs font-semibold text-slate-300 border-t border-slate-700/60 pt-2">
+                        <div className="p-2 rounded-xl bg-slate-900/60 border border-indigo-800/40 space-y-0.5">
+                          <div className="flex justify-between text-blue-300 font-black">
+                            <span>قيد 1: عمولة العميل:</span>
+                            <span className="font-mono">+{calcClientFee.toFixed(2)} ر.س</span>
+                          </div>
+                          <p className="text-[9px] text-slate-400 font-mono">SETTLE-DEMO-PLATFORM-CLIENT</p>
+                        </div>
+
+                        <div className="p-2 rounded-xl bg-slate-900/60 border border-emerald-800/40 space-y-0.5">
+                          <div className="flex justify-between text-emerald-300 font-black">
+                            <span>قيد 2: عمولة المورد:</span>
+                            <span className="font-mono">+{calcVendorFee.toFixed(2)} ر.س</span>
+                          </div>
+                          <p className="text-[9px] text-slate-400 font-mono">SETTLE-DEMO-PLATFORM-VENDOR</p>
+                        </div>
+                      </div>
+                      <div className="pt-2 border-t border-indigo-500/30 flex items-center justify-between text-sm font-black text-indigo-300">
+                        <span>إجمالي إيراد المنصة:</span>
+                        <span className="font-mono text-base text-white">{calcPlatformRevenue.toFixed(2)} ر.س</span>
+                      </div>
+                    </div>
+
+                    {/* Card 4: Courier Wallet */}
+                    <div className="p-4 rounded-2xl bg-slate-800/80 border border-amber-500/30 space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-black text-amber-400">4. محفظة شركة التوصيل</span>
+                        <ShoppingBag className="w-4 h-4 text-amber-400" />
+                      </div>
+                      <div className="space-y-1.5 text-xs font-semibold text-slate-300 border-t border-slate-700/60 pt-2">
+                        <div className="p-2 rounded-xl bg-slate-900/60 border border-amber-800/40 space-y-0.5">
+                          <div className="flex justify-between text-amber-300 font-black">
+                            <span>إيداع أجور الشحن:</span>
+                            <span className="font-mono">+{calcCourierPayout.toFixed(2)} ر.س</span>
+                          </div>
+                          <p className="text-[9px] text-slate-400 font-mono">SETTLE-DEMO-COURIER</p>
+                        </div>
+                        <p className="text-[10px] text-slate-400 font-semibold pt-2 leading-relaxed">
+                          يتم إيداع كامل تكلفة التوصيل في حساب المندوب أو شركة الشحن فور التسليم الناجح.
+                        </p>
+                      </div>
+                      <div className="pt-2 border-t border-amber-500/30 flex items-center justify-between text-sm font-black text-amber-300">
+                        <span>إجمالي إيداع التوصيل:</span>
+                        <span className="font-mono text-base text-white">{calcCourierPayout.toFixed(2)} ر.س</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Zero Leakage Mathematical Audit Banner */}
+                  <div className="p-4.5 rounded-2xl bg-emerald-950/60 border-2 border-emerald-500/50 flex flex-col md:flex-row items-center justify-between gap-4 relative z-10">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
+                        <CheckCircle2 className="w-6 h-6 text-emerald-400" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-black text-emerald-200">
+                          نتيجة التدقيق الرياضي التلقائي: تطابق بنسبة 100% (Zero-Leakage Audit)
+                        </p>
+                        <p className="text-xs font-mono text-emerald-300/90 pt-0.5">
+                          {calcVendorPayout.toFixed(2)} (المورد) + {calcPlatformRevenue.toFixed(2)} (المنصة) + {calcCourierPayout.toFixed(2)} (التوصيل) = {calcClientTotal.toFixed(2)} ر.س (مدفوع العميل) ✓
+                        </p>
+                      </div>
+                    </div>
+
+                    <span className="px-4 py-2 rounded-xl bg-emerald-500 text-slate-950 font-black text-xs shrink-0 shadow-md">
+                      تطابق محاسبي سليم ومحكم
+                    </span>
+                  </div>
+                </div>
+
+                {/* ── SECTION 5: OPERATIONAL TOGGLES ── */}
                 <div className="pt-4 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <label className="flex items-center gap-3 p-4 rounded-2xl border border-slate-200/80 hover:bg-slate-50 cursor-pointer transition-colors">
                     <input
@@ -759,20 +1540,41 @@ export default function AdminSettingsPage() {
                   </label>
                 </div>
 
-                <div className="flex items-center justify-between pt-2">
+                {/* Submit Button & Feedback */}
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 pt-4 border-t border-slate-100">
                   <button
                     type="submit"
                     disabled={isSavingPolicies}
-                    className="h-12 px-6 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                    className="h-14 px-8 rounded-2xl bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white font-black text-sm flex items-center justify-center gap-2.5 transition-all shadow-lg shadow-indigo-600/30 cursor-pointer disabled:opacity-50"
                   >
-                    {isSavingPolicies ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                    <span>حفظ سياسات المنصة</span>
+                    {isSavingPolicies ? (
+                      <>
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                        <span>جاري حفظ واعتماد سياسات الرسوم...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Save className="w-5 h-5" />
+                        <span>حفظ واعتماد سياسات رسوم المنصة والضرائب</span>
+                      </>
+                    )}
                   </button>
 
                   {policiesFeedback && (
-                    <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-3.5 py-2 rounded-xl border border-emerald-200">
-                      {policiesFeedback}
-                    </span>
+                    <div
+                      className={`text-xs font-bold px-4 py-3 rounded-2xl border flex items-center gap-2 animate-in fade-in slide-in-from-top-1 ${
+                        policiesFeedback.type === "success"
+                          ? "text-emerald-950 bg-emerald-50 border-emerald-200"
+                          : "text-red-950 bg-red-50 border-red-200"
+                      }`}
+                    >
+                      {policiesFeedback.type === "success" ? (
+                        <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+                      ) : (
+                        <AlertTriangle className="w-5 h-5 text-red-600 shrink-0" />
+                      )}
+                      <span>{policiesFeedback.message}</span>
+                    </div>
                   )}
                 </div>
               </form>
@@ -782,7 +1584,701 @@ export default function AdminSettingsPage() {
       )}
 
       {/* ══════════════════════════════════════════════════════════ */}
-      {/* ── TAB 2: ADMIN PROFILE & SECURITY ── */}
+      {/* ── TAB 2: SMTP EMAIL SERVER CONFIGURATION (ENCRYPTED) ── */}
+      {/* ══════════════════════════════════════════════════════════ */}
+      {activeTab === "email" && (
+        <div className="space-y-8 animate-in fade-in duration-300">
+          {/* 1. SECURITY & ENCRYPTION GUARANTEE BANNER */}
+          <div className="p-6 rounded-3xl bg-gradient-to-r from-blue-950 via-slate-900 to-indigo-950 text-white shadow-xl border border-blue-800/40 relative overflow-hidden">
+            <div className="absolute left-0 top-0 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
+            <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-5 relative z-10">
+              <div className="flex items-start gap-4">
+                <div className="w-13 h-13 rounded-2xl bg-blue-600/30 border border-blue-400/30 text-blue-300 flex items-center justify-center shrink-0 shadow-lg">
+                  <ShieldCheck className="w-7 h-7 text-blue-400" />
+                </div>
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h2 className="text-xl font-black text-white">حماية أمنية وتشفير عالي المستوى للبيانات</h2>
+                    <Badge className="bg-emerald-500/20 text-emerald-300 border-emerald-500/30 font-mono text-xs">
+                      AES-256-GCM Military Encryption
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-blue-200/90 leading-relaxed max-w-2xl font-semibold">
+                    🛡️ سيتم تسجيل بيانات اعتماد خادم البريد وحفظها بشكل مشفر باستخدام AES-256-GCM داخل قاعدة البيانات لحماية سريتها، ولا يتم عرض كلمة المرور الأصلية في لوحة التحكم أو إرسالها إلى المتصفح.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <span
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-black border ${
+                    smtpConfig.smtp_enabled
+                      ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
+                      : "bg-slate-800 text-slate-400 border-slate-700"
+                  }`}
+                >
+                  {smtpConfig.smtp_enabled ? "خدمة البريد مفعلة ✓" : "خدمة البريد معطلة"}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* 2. SMTP CREDENTIALS & SERVER CONFIGURATION CARD */}
+          <Card className="border border-slate-200 shadow-sm rounded-3xl overflow-hidden bg-white">
+            <CardHeader className="p-6 border-b border-slate-100 bg-slate-50/50">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-11 h-11 rounded-2xl bg-blue-600 text-white flex items-center justify-center shadow-md shadow-blue-600/25">
+                    <Mail className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-xl font-black text-slate-900">
+                      إعدادات خادم البريد الإلكتروني (SMTP Gateway)
+                    </CardTitle>
+                    <CardDescription className="text-slate-500 text-xs font-bold mt-0.5">
+                      ربط النظام بخادم البريد لإرسال إشعارات الطلبات، عروض الأسعار، وتنبيهات الصفقات آلياً
+                    </CardDescription>
+                  </div>
+                </div>
+
+                {/* Quick Presets */}
+                <div className="flex items-center flex-wrap gap-2">
+                  <span className="text-xs font-bold text-slate-400">تعبئة سريعة:</span>
+                  {[
+                    { label: "Gmail", host: "smtp.gmail.com", port: 587, secure: false },
+                    { label: "Outlook / M365", host: "smtp.office365.com", port: 587, secure: false },
+                    { label: "Zoho", host: "smtp.zoho.com", port: 465, secure: true },
+                    { label: "VPS Host", host: "mail.rfq-sa.com", port: 587, secure: false },
+                  ].map((preset) => (
+                    <button
+                      key={preset.label}
+                      type="button"
+                      onClick={() =>
+                        setSmtpConfig((prev) => ({
+                          ...prev,
+                          smtp_host: preset.host,
+                          smtp_port: preset.port,
+                          smtp_secure: preset.secure,
+                        }))
+                      }
+                      className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-blue-50 hover:text-blue-600 border border-slate-200 text-slate-700 text-xs font-bold transition-all cursor-pointer"
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </CardHeader>
+
+            <CardContent className="p-6 md:p-8 space-y-6">
+              <form onSubmit={handleSaveSmtp} className="space-y-6">
+                {/* Master Switch */}
+                <div className="p-4 rounded-2xl border border-blue-200/80 bg-blue-50/40 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center">
+                      <Send className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-black text-slate-900">تفعيل الإرسال التلقائي للبريد الإلكتروني</p>
+                      <p className="text-xs text-slate-500 font-semibold">
+                        عند التفعيل، سيتم إرسال رسائل بريد فورية للأطراف المعنية عند كل حدث تشغيلي
+                      </p>
+                    </div>
+                  </div>
+
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={smtpConfig.smtp_enabled}
+                      onChange={(e) => setSmtpConfig({ ...smtpConfig, smtp_enabled: e.target.checked })}
+                      className="sr-only peer"
+                    />
+                    <div className="w-12 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                  </label>
+                </div>
+
+                {/* Form Fields Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                  {/* Host */}
+                  <div className="space-y-2">
+                    <label className="text-xs font-black text-slate-700 flex items-center gap-1.5">
+                      <Server className="w-3.5 h-3.5 text-blue-600" />
+                      <span>عنوان خادم SMTP (Host)</span>
+                    </label>
+                    <input
+                      type="text"
+                      dir="ltr"
+                      value={smtpConfig.smtp_host}
+                      onChange={(e) => setSmtpConfig({ ...smtpConfig, smtp_host: e.target.value })}
+                      placeholder="smtp.gmail.com"
+                      className="w-full h-12 px-4 rounded-xl border border-slate-200 text-sm font-mono font-bold text-left focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100 [direction:ltr]"
+                      required
+                    />
+                  </div>
+
+                  {/* Port */}
+                  <div className="space-y-2">
+                    <label className="text-xs font-black text-slate-700 flex items-center gap-1.5">
+                      <Globe2 className="w-3.5 h-3.5 text-blue-600" />
+                      <span>منفذ الاتصال (Port)</span>
+                    </label>
+                    <input
+                      type="number"
+                      dir="ltr"
+                      value={smtpConfig.smtp_port}
+                      onChange={(e) => setSmtpConfig({ ...smtpConfig, smtp_port: parseInt(e.target.value, 10) || 587 })}
+                      placeholder="587"
+                      className="w-full h-12 px-4 rounded-xl border border-slate-200 text-sm font-mono font-bold text-left focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100 [direction:ltr]"
+                      required
+                    />
+                  </div>
+
+                  {/* Username / Email */}
+                  <div className="space-y-2">
+                    <label className="text-xs font-black text-slate-700 flex items-center gap-1.5">
+                      <AtSign className="w-3.5 h-3.5 text-blue-600" />
+                      <span>اسم المستخدم / البريد (Username)</span>
+                    </label>
+                    <input
+                      type="text"
+                      dir="ltr"
+                      value={smtpConfig.smtp_user}
+                      onChange={(e) => setSmtpConfig({ ...smtpConfig, smtp_user: e.target.value })}
+                      placeholder="your-email@domain.com"
+                      className="w-full h-12 px-4 rounded-xl border border-slate-200 text-sm font-mono font-bold text-left focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100 [direction:ltr]"
+                      required
+                    />
+                  </div>
+
+                  {/* Password (Encrypted in DB) */}
+                  <div className="space-y-2">
+                    <label className="text-xs font-black text-slate-700 flex items-center justify-between">
+                      <span className="flex items-center gap-1.5">
+                        <Lock className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>الرقم السري للبريد (مشفر في قاعدة البيانات)</span>
+                      </span>
+                      {smtpHasPasswordSaved && (
+                        <span className="text-[11px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                          محفوظ ومحمي بـ AES-256
+                        </span>
+                      )}
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showSmtpPassword ? "text" : "password"}
+                        dir="ltr"
+                        value={smtpConfig.smtp_password}
+                        onChange={(e) => setSmtpConfig({ ...smtpConfig, smtp_password: e.target.value })}
+                        placeholder={smtpHasPasswordSaved ? "•••••••• (اتركه كما هو إذا لم ترغب بالتغيير)" : "أدخل كلمة المرور أو رمز التطبيق"}
+                        className="w-full h-12 px-4 pl-11 rounded-xl border border-slate-200 text-sm font-mono font-bold text-left focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100 [direction:ltr]"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowSmtpPassword(!showSmtpPassword)}
+                        className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+                      >
+                        {showSmtpPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* From Name */}
+                  <div className="space-y-2">
+                    <label className="text-xs font-black text-slate-700">اسم المرسل المعروض (Sender Name)</label>
+                    <input
+                      type="text"
+                      value={smtpConfig.smtp_from_name}
+                      onChange={(e) => setSmtpConfig({ ...smtpConfig, smtp_from_name: e.target.value })}
+                      placeholder="منصة RFQ السعودية"
+                      className="w-full h-12 px-4 rounded-xl border border-slate-200 text-sm font-bold focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
+                    />
+                  </div>
+
+                  {/* From Email */}
+                  <div className="space-y-2">
+                    <label className="text-xs font-black text-slate-700">البريد الإلكتروني الظاهر (From Address)</label>
+                    <input
+                      type="email"
+                      dir="ltr"
+                      value={smtpConfig.smtp_from_email}
+                      onChange={(e) => setSmtpConfig({ ...smtpConfig, smtp_from_email: e.target.value })}
+                      placeholder="notifications@rfq-sa.com"
+                      className="w-full h-12 px-4 rounded-xl border border-slate-200 text-sm font-mono font-bold text-left focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100 [direction:ltr]"
+                    />
+                  </div>
+                </div>
+
+                {/* Secure SSL Toggle */}
+                <div className="pt-2">
+                  <label className="flex items-center gap-3 p-4 rounded-2xl border border-slate-200 hover:bg-slate-50 cursor-pointer transition-colors w-fit">
+                    <input
+                      type="checkbox"
+                      checked={smtpConfig.smtp_secure}
+                      onChange={(e) => setSmtpConfig({ ...smtpConfig, smtp_secure: e.target.checked })}
+                      className="w-5 h-5 rounded text-blue-600 focus:ring-blue-500"
+                    />
+                    <div>
+                      <p className="text-xs font-black text-slate-900">استخدام اتصال SSL / TLS مباشر (عادة لمنفذ 465)</p>
+                      <p className="text-[11px] text-slate-500 font-semibold">اتركه غير محدد في حال استخدام منفذ 587 (STARTTLS)</p>
+                    </div>
+                  </label>
+                </div>
+
+                {/* Submit & Feedback */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-4 border-t border-slate-100">
+                  <button
+                    type="submit"
+                    disabled={isSavingSmtp}
+                    className="h-13 px-8 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-black text-sm flex items-center justify-center gap-2.5 shadow-lg shadow-blue-600/30 active:scale-95 transition-all cursor-pointer disabled:opacity-50"
+                  >
+                    {isSavingSmtp ? (
+                      <>
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                        <span>جاري التشفير والحفظ في قاعدة البيانات...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Save className="w-5 h-5" />
+                        <span>حفظ إعدادات خادم البريد وتشفير البيانات</span>
+                      </>
+                    )}
+                  </button>
+
+                  {smtpFeedback && (
+                    <div
+                      className={`p-3.5 rounded-2xl text-xs font-bold flex items-center gap-2 ${
+                        smtpFeedback.type === "success"
+                          ? "bg-emerald-50 text-emerald-950 border border-emerald-200"
+                          : "bg-red-50 text-red-950 border border-red-200"
+                      }`}
+                    >
+                      {smtpFeedback.type === "success" ? (
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                      ) : (
+                        <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+                      )}
+                      <span>{smtpFeedback.message}</span>
+                    </div>
+                  )}
+                </div>
+              </form>
+            </CardContent>
+          </Card>
+
+          {/* 3. LIVE CONNECTION TEST & VERIFICATION CARD */}
+          <Card className="border border-slate-200 shadow-sm rounded-3xl overflow-hidden bg-gradient-to-b from-white to-slate-50">
+            <CardHeader className="p-6 border-b border-slate-100">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shadow-sm">
+                  <Activity className="w-5 h-5" />
+                </div>
+                <div>
+                  <CardTitle className="text-lg font-black text-slate-900">
+                    فحص الاتصال الفوري وإرسال بريد تجريبي (Live Diagnostics)
+                  </CardTitle>
+                  <CardDescription className="text-slate-500 text-xs font-bold mt-0.5">
+                    التحقق من صحة بيانات الخادم وكلمة المرور المشفرة عبر إرسال رسالة بريد تجريبية حقيقية
+                  </CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+
+            <CardContent className="p-6 md:p-8 space-y-5">
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3.5">
+                <div className="relative flex-1 max-w-lg">
+                  <input
+                    type="email"
+                    dir="ltr"
+                    value={testEmailRecipient}
+                    onChange={(e) => setTestEmailRecipient(e.target.value)}
+                    placeholder={smtpConfig.smtp_user || "أدخل البريد المستلم للتجربة (مثال: admin@rfq-sa.com)"}
+                    className="w-full h-13 px-4 pl-10 rounded-2xl border-2 border-slate-200 bg-white text-sm font-mono font-bold text-left focus:outline-none focus:border-emerald-600 focus:ring-4 focus:ring-emerald-100 transition-all shadow-xs [direction:ltr]"
+                  />
+                  <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleTestSmtp}
+                  disabled={isTestingSmtp}
+                  className="h-13 px-8 rounded-2xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-black text-sm transition-all shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2.5 cursor-pointer disabled:opacity-50 whitespace-nowrap"
+                >
+                  {isTestingSmtp ? (
+                    <>
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      <span>جاري فحص الخادم والمصادقة...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Send className="w-5 h-5" />
+                      <span>فحص الاتصال وإرسال بريد تجريبي الآن</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {testSmtpFeedback && (
+                <div
+                  className={`p-4.5 rounded-2xl border text-sm font-bold flex items-start gap-3 animate-in fade-in slide-in-from-top-2 ${
+                    testSmtpFeedback.type === "success"
+                      ? "bg-emerald-50 border-emerald-200 text-emerald-950"
+                      : "bg-red-50 border-red-200 text-red-950"
+                  }`}
+                >
+                  {testSmtpFeedback.type === "success" ? (
+                    <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+                  ) : (
+                    <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+                  )}
+                  <p className="font-bold text-xs leading-relaxed">{testSmtpFeedback.message}</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════ */}
+      {/* ── TAB 3: WHATSAPP GATEWAY (ENCRYPTED & MULTI-PROVIDER) ── */}
+      {/* ══════════════════════════════════════════════════════════ */}
+      {activeTab === "whatsapp" && (
+        <div className="space-y-8 animate-in fade-in duration-300">
+          {/* 1. SECURITY & ENCRYPTION GUARANTEE BANNER */}
+          <div className="p-6 rounded-3xl bg-gradient-to-r from-emerald-950 via-slate-900 to-teal-950 text-white shadow-xl border border-emerald-800/40 relative overflow-hidden">
+            <div className="absolute left-0 top-0 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
+            <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-5 relative z-10">
+              <div className="flex items-start gap-4">
+                <div className="w-13 h-13 rounded-2xl bg-emerald-600/30 border border-emerald-400/30 text-emerald-300 flex items-center justify-center shrink-0 shadow-lg">
+                  <ShieldCheck className="w-7 h-7 text-emerald-400" />
+                </div>
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h2 className="text-xl font-black text-white">تشفير وحماية رموز بوابة الواتساب الرسمية</h2>
+                    <Badge className="bg-emerald-500/20 text-emerald-300 border-emerald-500/30 font-mono text-xs">
+                      AES-256-GCM Secure Storage
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-emerald-200/90 leading-relaxed max-w-2xl font-semibold">
+                    🔒 يتم تشفير الرموز السرية لـ WhatsApp Cloud API و UltraMsg بنظام التشفير القياسي AES-256-GCM لحماية سرية المراسلات، مع إرسال فوري لتحديثات مراحل الطلب إلى هواتف العملاء والموردين.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <span
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-black border ${
+                    whatsappConfig.whatsapp_enabled
+                      ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
+                      : "bg-slate-800 text-slate-400 border-slate-700"
+                  }`}
+                >
+                  {whatsappConfig.whatsapp_enabled ? "خدمة واتساب مفعلة ✓" : "خدمة واتساب معطلة"}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* 2. WHATSAPP CONFIGURATION CARD */}
+          <Card className="border border-slate-200 shadow-sm rounded-3xl overflow-hidden bg-white">
+            <CardHeader className="p-6 border-b border-slate-100 bg-slate-50/50">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-11 h-11 rounded-2xl bg-emerald-600 text-white flex items-center justify-center shadow-md shadow-emerald-600/25">
+                    <MessageCircle className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-xl font-black text-slate-900">
+                      إعدادات بوابة واتساب (WhatsApp Gateway API)
+                    </CardTitle>
+                    <CardDescription className="text-slate-500 text-xs font-bold mt-0.5">
+                      ربط النظام ببوابة WhatsApp الرسمية لإرسال إشعارات الطلبات وتحديثات مراحل التوصيل إلى جوال المستخدم
+                    </CardDescription>
+                  </div>
+                </div>
+
+                {/* Quick Presets */}
+                <div className="flex items-center flex-wrap gap-2">
+                  <span className="text-xs font-bold text-slate-400">مزود الخدمة:</span>
+                  {[
+                    { label: "Meta Cloud API (الرسمي)", provider: "meta", url: "https://graph.facebook.com/v20.0" },
+                    { label: "UltraMsg", provider: "ultramsg", url: "https://api.ultramsg.com" },
+                    { label: "Twilio", provider: "twilio", url: "https://api.twilio.com" },
+                    { label: "Generic Webhook", provider: "custom", url: "" },
+                  ].map((preset) => (
+                    <button
+                      key={preset.provider}
+                      type="button"
+                      onClick={() =>
+                        setWhatsappConfig((prev) => ({
+                          ...prev,
+                          whatsapp_provider: preset.provider as any,
+                          whatsapp_api_url: preset.url || prev.whatsapp_api_url,
+                        }))
+                      }
+                      className={`px-3 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                        whatsappConfig.whatsapp_provider === preset.provider
+                          ? "bg-emerald-600 text-white border-emerald-600 shadow-xs"
+                          : "bg-slate-100 hover:bg-emerald-50 hover:text-emerald-700 border-slate-200 text-slate-700"
+                      }`}
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </CardHeader>
+
+            <CardContent className="p-6 md:p-8 space-y-6">
+              <form onSubmit={handleSaveWhatsapp} className="space-y-6">
+                {/* Master Switch */}
+                <div className="p-4 rounded-2xl border border-emerald-200/80 bg-emerald-50/40 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center">
+                      <Send className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-black text-slate-900">تفعيل الإرسال التلقائي عبر واتساب</p>
+                      <p className="text-xs text-slate-500 font-semibold">
+                        عند التفعيل، سيتم إرسال رسائل واتساب تفاعلية مباشرة إلى أرقام هواتف العملاء والموردين المسجلة
+                      </p>
+                    </div>
+                  </div>
+
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={whatsappConfig.whatsapp_enabled}
+                      onChange={(e) => setWhatsappConfig({ ...whatsappConfig, whatsapp_enabled: e.target.checked })}
+                      className="sr-only peer"
+                    />
+                    <div className="w-12 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                  </label>
+                </div>
+
+                {/* Form Fields Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                  {/* Provider Selector */}
+                  <div className="space-y-2">
+                    <label className="text-xs font-black text-slate-700">نوع المزود (Provider)</label>
+                    <select
+                      value={whatsappConfig.whatsapp_provider}
+                      onChange={(e) => setWhatsappConfig({ ...whatsappConfig, whatsapp_provider: e.target.value as any })}
+                      className="w-full h-12 px-4 rounded-xl border border-slate-200 text-sm font-bold bg-white focus:outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
+                    >
+                      <option value="meta">Meta WhatsApp Cloud API (Official)</option>
+                      <option value="ultramsg">UltraMsg API (Instance)</option>
+                      <option value="twilio">Twilio Programmable Messaging</option>
+                      <option value="custom">Custom Webhook Gateway</option>
+                    </select>
+                  </div>
+
+                  {/* API URL */}
+                  <div className="space-y-2">
+                    <label className="text-xs font-black text-slate-700">عنوان الرابط (API Base URL / Endpoint)</label>
+                    <input
+                      type="text"
+                      dir="ltr"
+                      value={whatsappConfig.whatsapp_api_url}
+                      onChange={(e) => setWhatsappConfig({ ...whatsappConfig, whatsapp_api_url: e.target.value })}
+                      placeholder="https://graph.facebook.com/v20.0"
+                      className="w-full h-12 px-4 rounded-xl border border-slate-200 text-sm font-mono font-bold text-left focus:outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100 [direction:ltr]"
+                      required
+                    />
+                  </div>
+
+                  {/* Phone Number ID / Instance ID */}
+                  <div className="space-y-2">
+                    <label className="text-xs font-black text-slate-700">
+                      {whatsappConfig.whatsapp_provider === "ultramsg" ? "معرف النموذج (Instance ID)" : "معرف رقم الهاتف (Phone Number ID / SID)"}
+                    </label>
+                    <input
+                      type="text"
+                      dir="ltr"
+                      value={whatsappConfig.whatsapp_phone_number_id}
+                      onChange={(e) => setWhatsappConfig({ ...whatsappConfig, whatsapp_phone_number_id: e.target.value })}
+                      placeholder={whatsappConfig.whatsapp_provider === "ultramsg" ? "instance12345" : "109384729182736"}
+                      className="w-full h-12 px-4 rounded-xl border border-slate-200 text-sm font-mono font-bold text-left focus:outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100 [direction:ltr]"
+                    />
+                  </div>
+
+                  {/* API Token / Key (Encrypted in DB) */}
+                  <div className="space-y-2">
+                    <label className="text-xs font-black text-slate-700 flex items-center justify-between">
+                      <span className="flex items-center gap-1.5">
+                        <Lock className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>رمز الوصول السري (API Token / Secret Key)</span>
+                      </span>
+                      {whatsappHasTokenSaved && (
+                        <span className="text-[11px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                          مشفر بـ AES-256
+                        </span>
+                      )}
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showWhatsappToken ? "text" : "password"}
+                        dir="ltr"
+                        value={whatsappConfig.whatsapp_api_token}
+                        onChange={(e) => setWhatsappConfig({ ...whatsappConfig, whatsapp_api_token: e.target.value })}
+                        placeholder={whatsappHasTokenSaved ? "•••••••• (اتركه كما هو إذا لم ترغب بالتغيير)" : "أدخل رمز الوصول الدائم للواتساب"}
+                        className="w-full h-12 px-4 pl-11 rounded-xl border border-slate-200 text-sm font-mono font-bold text-left focus:outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100 [direction:ltr]"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowWhatsappToken(!showWhatsappToken)}
+                        className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+                      >
+                        {showWhatsappToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* From Phone Number */}
+                  <div className="space-y-2">
+                    <label className="text-xs font-black text-slate-700">رقم الهاتف الظاهر للمرسل (From Phone)</label>
+                    <input
+                      type="text"
+                      dir="ltr"
+                      value={whatsappConfig.whatsapp_from_phone}
+                      onChange={(e) => setWhatsappConfig({ ...whatsappConfig, whatsapp_from_phone: e.target.value })}
+                      placeholder="+966500000000"
+                      className="w-full h-12 px-4 rounded-xl border border-slate-200 text-sm font-mono font-bold text-left focus:outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100 [direction:ltr]"
+                    />
+                  </div>
+                </div>
+
+                {/* Auto Order Updates Toggle */}
+                <div className="pt-2">
+                  <label className="flex items-center gap-3 p-4 rounded-2xl border border-slate-200 hover:bg-slate-50 cursor-pointer transition-colors w-fit">
+                    <input
+                      type="checkbox"
+                      checked={whatsappConfig.whatsapp_auto_order_updates}
+                      onChange={(e) => setWhatsappConfig({ ...whatsappConfig, whatsapp_auto_order_updates: e.target.checked })}
+                      className="w-5 h-5 rounded text-emerald-600 focus:ring-emerald-500"
+                    />
+                    <div>
+                      <p className="text-xs font-black text-slate-900">إرسال تحديثات مراحل مسار الطلب آلياً على واتساب العملاء والموردين</p>
+                      <p className="text-[11px] text-slate-500 font-semibold">يشمل: طلب تسعير جديد، صدور عرض سعر، تأكيد صفقة، استلام الشحنة، كود الاستلام OTP، وإكمال الطلب</p>
+                    </div>
+                  </label>
+                </div>
+
+                {/* Submit & Feedback */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-4 border-t border-slate-100">
+                  <button
+                    type="submit"
+                    disabled={isSavingWhatsapp}
+                    className="h-13 px-8 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-sm flex items-center justify-center gap-2.5 shadow-lg shadow-emerald-600/30 active:scale-95 transition-all cursor-pointer disabled:opacity-50"
+                  >
+                    {isSavingWhatsapp ? (
+                      <>
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                        <span>جاري التشفير والحفظ في قاعدة البيانات...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Save className="w-5 h-5" />
+                        <span>حفظ إعدادات بوابة واتساب وتشفير الرمز</span>
+                      </>
+                    )}
+                  </button>
+
+                  {whatsappFeedback && (
+                    <div
+                      className={`p-3.5 rounded-2xl text-xs font-bold flex items-center gap-2 ${
+                        whatsappFeedback.type === "success"
+                          ? "bg-emerald-50 text-emerald-950 border border-emerald-200"
+                          : "bg-red-50 text-red-950 border border-red-200"
+                      }`}
+                    >
+                      {whatsappFeedback.type === "success" ? (
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                      ) : (
+                        <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+                      )}
+                      <span>{whatsappFeedback.message}</span>
+                    </div>
+                  )}
+                </div>
+              </form>
+            </CardContent>
+          </Card>
+
+          {/* 3. LIVE CONNECTION TEST FOR WHATSAPP */}
+          <Card className="border border-slate-200 shadow-sm rounded-3xl overflow-hidden bg-gradient-to-b from-white to-slate-50">
+            <CardHeader className="p-6 border-b border-slate-100">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shadow-sm">
+                  <Activity className="w-5 h-5" />
+                </div>
+                <div>
+                  <CardTitle className="text-lg font-black text-slate-900">
+                    فحص الاتصال الفوري وإرسال رسالة واتساب تجريبية (Live Diagnostics)
+                  </CardTitle>
+                  <CardDescription className="text-slate-500 text-xs font-bold mt-0.5">
+                    التحقق من صحة بوابة واتساب ورمز الوصول المشفر عبر إرسال رسالة اختبارية إلى رقم جوال حقيقي
+                  </CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+
+            <CardContent className="p-6 md:p-8 space-y-5">
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3.5">
+                <div className="relative flex-1 max-w-lg">
+                  <input
+                    type="text"
+                    dir="ltr"
+                    value={testWhatsappRecipient}
+                    onChange={(e) => setTestWhatsappRecipient(e.target.value)}
+                    placeholder="أدخل رقم الجوال للتجربة (مثال: 0501234567 أو 966501234567)"
+                    className="w-full h-13 px-4 pl-10 rounded-2xl border-2 border-slate-200 bg-white text-sm font-mono font-bold text-left focus:outline-none focus:border-emerald-600 focus:ring-4 focus:ring-emerald-100 transition-all shadow-xs [direction:ltr]"
+                  />
+                  <MessageCircle className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleTestWhatsapp}
+                  disabled={isTestingWhatsapp}
+                  className="h-13 px-8 rounded-2xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-black text-sm transition-all shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2.5 cursor-pointer disabled:opacity-50 whitespace-nowrap"
+                >
+                  {isTestingWhatsapp ? (
+                    <>
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      <span>جاري فحص البوابة والمصادقة...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Send className="w-5 h-5" />
+                      <span>إرسال رسالة واتساب تجريبية الآن</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {testWhatsappFeedback && (
+                <div
+                  className={`p-4.5 rounded-2xl border text-sm font-bold flex items-start gap-3 animate-in fade-in slide-in-from-top-2 ${
+                    testWhatsappFeedback.type === "success"
+                      ? "bg-emerald-50 border-emerald-200 text-emerald-950"
+                      : "bg-red-50 border-red-200 text-red-950"
+                  }`}
+                >
+                  {testWhatsappFeedback.type === "success" ? (
+                    <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+                  ) : (
+                    <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+                  )}
+                  <p className="font-bold text-xs leading-relaxed">{testWhatsappFeedback.message}</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════ */}
+      {/* ── TAB 4: ADMIN PROFILE & SECURITY ── */}
       {/* ══════════════════════════════════════════════════════════ */}
       {activeTab === "profile" && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 animate-in fade-in duration-300">

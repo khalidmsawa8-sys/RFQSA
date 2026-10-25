@@ -32,7 +32,7 @@ export const DEFAULT_VENDOR_BRANCHES: VendorBranch[] = [
     latitude: 24.7136,
     longitude: 46.6753,
     contact_name: "م. سالم القحطاني",
-    contact_phone: "0551122334",
+    contact_phone: "",
     is_main: true,
     is_active: true,
     created_at: new Date().toISOString(),
@@ -47,7 +47,7 @@ export const DEFAULT_VENDOR_BRANCHES: VendorBranch[] = [
     latitude: 24.7892,
     longitude: 46.6341,
     contact_name: "أبو فهد",
-    contact_phone: "0559988771",
+    contact_phone: "",
     is_main: false,
     is_active: true,
     created_at: new Date().toISOString(),
@@ -62,7 +62,7 @@ export const DEFAULT_VENDOR_BRANCHES: VendorBranch[] = [
     latitude: 21.5433,
     longitude: 39.1728,
     contact_name: "عمر الحربي",
-    contact_phone: "0563344556",
+    contact_phone: "",
     is_main: false,
     is_active: true,
     created_at: new Date().toISOString(),
@@ -108,62 +108,12 @@ export async function getVendorBranches(vendorId: string): Promise<VendorBranch[
       return profile.branches.filter((b: VendorBranch) => b.is_active !== false);
     }
 
-    // 3. If vendor has a profile in DB but no custom branches yet, generate multiple realistic branches
-    if (profile) {
-      const company = profile.company_name || "مؤسسة قطع الغيار المعتمدة";
-      const city = profile.city || "الرياض";
-      const mainAddr = profile.national_address || "طريق خريص - حي المنار";
-      const baseLat = Number(profile.latitude || 24.7136);
-      const baseLng = Number(profile.longitude || 46.6753);
-
-      return [
-        {
-          id: `br-${vendorId}-main`,
-          vendor_id: vendorId,
-          name: `${company} - الفرع الرئيسي (${city})`,
-          city: city,
-          district: profile.district || "حي المنار",
-          address: mainAddr,
-          latitude: baseLat,
-          longitude: baseLng,
-          is_main: true,
-          is_active: true,
-          created_at: new Date().toISOString(),
-        },
-        {
-          id: `br-${vendorId}-north`,
-          vendor_id: vendorId,
-          name: `${company} - فرع المعرض والمستودعات (${city})`,
-          city: city,
-          district: "المنطقة الصناعية",
-          address: `طريق الملك فهد - صناعية ${city}`,
-          latitude: baseLat + 0.045,
-          longitude: baseLng - 0.032,
-          is_main: false,
-          is_active: true,
-          created_at: new Date().toISOString(),
-        },
-        {
-          id: `br-${vendorId}-secondary`,
-          vendor_id: vendorId,
-          name: `${company} - فرع التسليم السريع (المستودع المركزي)`,
-          city: city === "جدة" ? "مكة المكرمة" : "جدة",
-          district: "حي الروضة",
-          address: "طريق المدينة المنورة - كوبري التحلية",
-          latitude: 21.5433,
-          longitude: 39.1728,
-          is_main: false,
-          is_active: true,
-          created_at: new Date().toISOString(),
-        },
-      ];
-    }
-
-    // 4. Default fallback branches
-    return DEFAULT_VENDOR_BRANCHES;
+    // Never auto-generate branches for new or existing vendors without branches!
+    // A vendor must explicitly register branches.
+    return [];
   } catch (err) {
     console.warn("Failed to fetch vendor branches:", err);
-    return DEFAULT_VENDOR_BRANCHES;
+    return [];
   }
 }
 
@@ -264,10 +214,6 @@ export async function deleteVendorBranch(
     const targetBranch = currentBranches.find((b) => b.id === branchId);
     if (!targetBranch) {
       return { success: false, error: "الفرع غير موجود" };
-    }
-
-    if (currentBranches.length <= 1) {
-      return { success: false, error: "لا يمكن حذف الفرع الوحيد للمنشأة، يجب وجود فرع واحد على الأقل" };
     }
 
     let updated = currentBranches.filter((b) => b.id !== branchId);

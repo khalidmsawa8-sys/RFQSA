@@ -17,14 +17,26 @@ class ClientRepository {
     return await _apiClient.get<List<RfqModel>>(
       ApiEndpoints.rfqs,
       fromJson: (data) {
+        final List<dynamic> list;
         if (data is List) {
-          return data.map((e) => RfqModel.fromJson(e as Map<String, dynamic>)).toList();
+          list = data;
         } else if (data is Map && data['rfqs'] is List) {
-          return (data['rfqs'] as List).map((e) => RfqModel.fromJson(e as Map<String, dynamic>)).toList();
+          list = data['rfqs'] as List;
         } else if (data is Map && data['data'] is List) {
-          return (data['data'] as List).map((e) => RfqModel.fromJson(e as Map<String, dynamic>)).toList();
+          list = data['data'] as List;
+        } else {
+          return <RfqModel>[];
         }
-        return [];
+
+        final results = <RfqModel>[];
+        for (final item in list) {
+          if (item is Map) {
+            try {
+              results.add(RfqModel.fromJson(Map<String, dynamic>.from(item)));
+            } catch (_) {}
+          }
+        }
+        return results;
       },
     );
   }
@@ -126,6 +138,10 @@ class ClientRepository {
       'recipient_phone': recipientPhone,
       'delivery_latitude': deliveryLat,
       'delivery_longitude': deliveryLng,
+      'delivery_method': deliveryMethod,
+      'delivery_type': deliveryMethod == 'pickup' ? 'pickup' : 'delivery',
+      'fulfillment_method': deliveryMethod == 'pickup' ? 'SELF_PICKUP' : 'DELIVERY',
+      'is_pickup': deliveryMethod == 'pickup',
       'status': 'open',
     };
 
@@ -145,28 +161,50 @@ class ClientRepository {
   }
 
   // 4. Fetch Client Vehicles (My Garage)
-  Future<ApiResponse<List<VehicleModel>>> fetchVehicles() async {
+  Future<ApiResponse<List<VehicleModel>>> fetchVehicles({bool forceRefresh = true}) async {
     return await _apiClient.get<List<VehicleModel>>(
       ApiEndpoints.clientVehicles,
+      forceRefresh: forceRefresh,
       fromJson: (data) {
+        final List<dynamic> list;
         if (data is List) {
-          return data.map((e) => VehicleModel.fromJson(e as Map<String, dynamic>)).toList();
+          list = data;
         } else if (data is Map && data['vehicles'] is List) {
-          return (data['vehicles'] as List).map((e) => VehicleModel.fromJson(e as Map<String, dynamic>)).toList();
+          list = data['vehicles'] as List;
         } else if (data is Map && data['data'] is List) {
-          return (data['data'] as List).map((e) => VehicleModel.fromJson(e as Map<String, dynamic>)).toList();
+          list = data['data'] as List;
+        } else {
+          return <VehicleModel>[];
         }
-        return [];
+
+        final results = <VehicleModel>[];
+        for (final item in list) {
+          if (item is Map) {
+            try {
+              results.add(VehicleModel.fromJson(Map<String, dynamic>.from(item)));
+            } catch (_) {}
+          }
+        }
+        return results;
       },
     );
   }
 
   // 5. Add New Vehicle to Garage
   Future<ApiResponse<VehicleModel>> addVehicle(VehicleModel vehicle) async {
+    _apiClient.clearCache('vehicles');
     return await _apiClient.post<VehicleModel>(
       ApiEndpoints.clientVehicles,
       data: vehicle.toJson(),
-      fromJson: (data) => VehicleModel.fromJson(data as Map<String, dynamic>),
+      fromJson: (data) {
+        if (data is Map<String, dynamic>) {
+          if (data['vehicle'] is Map<String, dynamic>) {
+            return VehicleModel.fromJson(data['vehicle'] as Map<String, dynamic>);
+          }
+          return VehicleModel.fromJson(data);
+        }
+        return vehicle;
+      },
     );
   }
 

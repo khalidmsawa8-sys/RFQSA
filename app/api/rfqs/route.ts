@@ -22,7 +22,7 @@ export async function GET(req: Request) {
     const supabase = await createClient();
     const { data: rfqs, error } = await supabase
       .from("rfqs")
-      .select("*, profiles!rfqs_client_id_fkey(full_name, phone, company_name)")
+      .select("*, quotes(id, vendor_id, total_price, delivery_days, status), profiles!rfqs_client_id_fkey(full_name, company_name)")
       .order("created_at", { ascending: false });
 
     let finalRfqs = rfqs || [];
@@ -41,6 +41,28 @@ export async function GET(req: Request) {
       } catch (_) {}
     }
 
+    // Always ensure every RFQ has its quotes loaded
+    try {
+      const QUOTES_FILE = path.join(process.cwd(), "data", "quotes_db.json");
+      let allQuotes: any[] = [];
+      if (globalThis.__SHARED_SERVER_QUOTES__ && globalThis.__SHARED_SERVER_QUOTES__.length > 0) {
+        allQuotes = globalThis.__SHARED_SERVER_QUOTES__;
+      } else if (fs.existsSync(QUOTES_FILE)) {
+        allQuotes = JSON.parse(fs.readFileSync(QUOTES_FILE, "utf-8"));
+      }
+
+      finalRfqs = finalRfqs.map((r: any) => {
+        const rfqQuotes = allQuotes.filter((q: any) => q.rfq_id === r.id);
+        const mergedQuotes = (Array.isArray(r.quotes) && r.quotes.length > 0)
+          ? r.quotes
+          : (rfqQuotes.length > 0 ? rfqQuotes : []);
+        return {
+          ...r,
+          quotes: mergedQuotes,
+        };
+      });
+    } catch (_) {}
+
     // Check if requester is a logged-in user via Supabase user, header or cookie
     let userId = "";
     let userRole = "";
@@ -56,16 +78,48 @@ export async function GET(req: Request) {
       userRole = req.headers.get("x-user-role") || "";
     }
 
+    const cookieHeader = req.headers.get("cookie") || "";
+    if (!userId) {
+      const mId = cookieHeader.match(/(?:^|; )rfq_user_id=([^;]*)/);
+      if (mId) userId = decodeURIComponent(mId[1]);
+    }
+    if (!userRole) {
+      const mRole = cookieHeader.match(/(?:^|; )rfq_session=([^;]*)/);
+      if (mRole) userRole = decodeURIComponent(mRole[1]);
+    }
+
+    const { searchParams } = new URL(req.url);
+    const clientIdParam = searchParams.get("client_id");
+
     if (userId) {
-      const { data: prof } = await supabase
-        .from("profiles")
-        .select("role, specialized_brands, specializes_in_all_brands, specialized_categories, specializes_in_all_categories")
-        .eq("id", userId)
-        .maybeSingle();
+      let prof: any = null;
+      try {
+        const { data: dbProf } = await supabase
+          .from("profiles")
+          .select("role, specialized_brands, specializes_in_all_brands, specialized_categories, specializes_in_all_categories")
+          .eq("id", userId)
+          .maybeSingle();
+        prof = dbProf;
+      } catch (_) {}
+
+      if (!prof) {
+        try {
+          const PROFILES_FILE = path.join(process.cwd(), "data", "profiles_db.json");
+          if (fs.existsSync(PROFILES_FILE)) {
+            const pList = JSON.parse(fs.readFileSync(PROFILES_FILE, "utf-8"));
+            prof = pList.find((p: any) => p.id === userId);
+          }
+        } catch (_) {}
+      }
 
       const effectiveRole = prof?.role || userRole;
 
-      if (effectiveRole === "vendor") {
+      if (effectiveRole === "client" || (clientIdParam && clientIdParam !== "client-demo-id")) {
+        const targetClientId = clientIdParam || userId;
+        if (targetClientId && targetClientId !== "client-demo-id") {
+          finalRfqs = finalRfqs.filter((r: any) => r.client_id === targetClientId);
+        }
+      } else if (effectiveRole === "vendor") {
         const vBrands = prof?.specialized_brands || [
           "toyota",
           "lexus",
@@ -109,12 +163,39 @@ export async function GET(req: Request) {
         // Direct targeted RFQs are ALWAYS included with top priority
         finalRfqs = [...targetedForThisVendor, ...filteredPublic];
 
-        // Filter out cancelled or expired requests for vendors
+        // Filter out cancelled, closed, accepted or expired requests for vendors
         const settings = await getSystemSettings();
         const durationMinutes = Math.max(1, Number(settings.rfq_visibility_duration_minutes) || 20);
         const now = Date.now();
+
+        const ORDERS_FILE = path.join(process.cwd(), "data", "orders_db.json");
+        let activeOrderRfqIds = new Set<string>();
+        try {
+          if (globalThis.__SHARED_SERVER_ORDERS__ && globalThis.__SHARED_SERVER_ORDERS__.length > 0) {
+            globalThis.__SHARED_SERVER_ORDERS__.forEach((o: any) => {
+              if (o.rfq_id) activeOrderRfqIds.add(o.rfq_id);
+              if (o.id) activeOrderRfqIds.add(`RFQ-${String(o.id).replace(/\D+/g, "")}`);
+            });
+          } else if (fs.existsSync(ORDERS_FILE)) {
+            const ordersList = JSON.parse(fs.readFileSync(ORDERS_FILE, "utf-8"));
+            if (Array.isArray(ordersList)) {
+              ordersList.forEach((o: any) => {
+                if (o.rfq_id) activeOrderRfqIds.add(o.rfq_id);
+                if (o.id) activeOrderRfqIds.add(`RFQ-${String(o.id).replace(/\D+/g, "")}`);
+              });
+            }
+          }
+        } catch (_) {}
+
         finalRfqs = finalRfqs.filter((r: any) => {
-          if (r.status === "cancelled" || r.status === "closed") return false;
+          if (
+            r.status === "cancelled" ||
+            r.status === "closed" ||
+            r.status === "accepted" ||
+            r.status === "completed" ||
+            r.status === "ordered"
+          ) return false;
+          if (activeOrderRfqIds.has(r.id) || activeOrderRfqIds.has(String(r.id).replace("RFQ-", ""))) return false;
           const createdAtMs = new Date(r.created_at || now).getTime();
           const expiryMs = r.expires_at ? new Date(r.expires_at).getTime() : (createdAtMs + durationMinutes * 60 * 1000);
           return now < expiryMs;
@@ -145,12 +226,16 @@ export async function POST(req: Request) {
   try {
     const supabase = await createClient();
 
-    // 1. Get logged in user from server session, header or body
+    // 1. Get logged in user from server session, header, cookies or body
     let {
       data: { user },
     } = await supabase.auth.getUser();
 
-    let clientId = user?.id || req.headers.get("x-user-id");
+    const cookieHeader = req.headers.get("cookie") || "";
+    const matchId = cookieHeader.match(/rfq_user_id=([^;]+)/);
+    const cookieUserId = matchId ? decodeURIComponent(matchId[1]) : "";
+
+    let clientId = user?.id || req.headers.get("x-user-id") || cookieUserId;
 
     const body = await req.json();
 
@@ -337,7 +422,7 @@ export async function POST(req: Request) {
           district: dbVendor.district || "حي الصناعية",
           latitude: dbVendor.latitude ? parseFloat(dbVendor.latitude) : null,
           longitude: dbVendor.longitude ? parseFloat(dbVendor.longitude) : null,
-          phone: dbVendor.phone || null,
+          phone: null,
           business_hours: dbVendor.business_hours || null,
           snapshot_created_at: new Date().toISOString(),
         };
@@ -459,6 +544,9 @@ export async function POST(req: Request) {
       expiry_hours: expiryHours,
       source: rfqSource,
       fulfillment_method: fulfillmentMethod,
+      delivery_method: isPickup ? "pickup" : "delivery",
+      delivery_type: isPickup ? "pickup" : "delivery",
+      is_pickup: isPickup,
       target_vendor_id: verifiedVendor ? verifiedVendor.id : null,
       pickup_snapshot: pickupSnapshot,
     };

@@ -243,6 +243,41 @@ const Map<String, List<String>> kBrandKeywords = {
   'فوزو': ['fuso', 'فوزو', 'ميتسوبيشي فوزو', 'كانتر', 'canter'],
 };
 
+/// Vehicle models grouped by brand for comprehensive filtering (Requirement 5.1)
+const Map<String, List<String>> kCarModelsByBrand = {
+  'تويوتا': ['كامري', 'كورولا', 'لاندكروزر', 'هايلكس', 'يارس', 'أفالون', 'فورتشنر', 'برادو', 'راف فور'],
+  'لكزس': ['ES', 'LS', 'LX', 'RX', 'GX', 'IS', 'NX'],
+  'نيسان': ['باترول', 'صني', 'التيما', 'ماكسيما', 'نافارا', 'اكستيرا', 'كيكس', 'باثفايندر'],
+  'إنفينيتي': ['Q50', 'Q60', 'QX50', 'QX60', 'QX80'],
+  'هوندا': ['أكورد', 'سيفيك', 'CR-V', 'بايلوت', 'سيتي', 'HR-V'],
+  'مازدا': ['مازدا 6', 'مازدا 3', 'CX-9', 'CX-5', 'CX-30', 'CX-60'],
+  'ميتسوبيشي': ['باجيرو', 'L200', 'اتراج', 'اكسباندر', 'مونتيرو سبورت', 'اوتلاندر'],
+  'إيسوزو': ['دينا NPR', 'D-Max', 'Mu-X', 'FVR'],
+  'سوزوكي': ['جيمبي', 'ديزاير', 'سويفت', 'سياز', 'فيتارا'],
+  'سوبارو': ['امبريزا', 'فورستر', 'أوتباك', 'XV'],
+  'فورد': ['توروس', 'إكسبدشن', 'F-150', 'اكسبلورر', 'موستنج', 'رينجر', 'إيدج'],
+  'جي إم سي': ['يوكون', 'سييرا', 'اكاديا', 'تيرين'],
+  'شيفروليه': ['تاهو', 'سيلفرادو', 'كابرس', 'ماليبو', 'كابتيفا', 'سوبربان', 'كمارو'],
+  'كاديلاك': ['إسكاليد', 'CT5', 'CT6', 'XT5', 'XT6'],
+  'جيب': ['جراند شيروكي', 'رانجلر', 'شيروكي', 'جلاديتور', 'كومباس'],
+  'دودج': ['شارجر', 'تشالنجر', 'دورانجو'],
+  'رام': ['1500', '2500', 'TRX'],
+  'هيونداي': ['سوناتا', 'النترا', 'أكسنت', 'توسان', 'سنتافي', 'أزيرا', 'باليسيد', 'كريتا', 'ستاريا'],
+  'كيا': ['K5', 'K8', 'سبورتاج', 'سيراتو', 'تيلورايد', 'سورينتو', 'كادينزا', 'بيجاس'],
+  'جينيسيس': ['G80', 'G90', 'G70', 'GV80', 'GV70'],
+  'مرسيدس بنز': ['S-Class', 'E-Class', 'C-Class', 'G-Class', 'GLE', 'GLS', 'A-Class'],
+  'بي إم دبليو': ['الفئة السابعة', 'الفئة الخامسة', 'الفئة الثالثة', 'X5', 'X6', 'X7', 'X3'],
+  'أودي': ['A6', 'A8', 'A4', 'Q7', 'Q8', 'Q5'],
+  'فولكس واجن': ['طوارق', 'تيجوان', 'باسات', 'غولف', 'تيرامونت'],
+  'بورش': ['كايين', 'باناميرا', 'ماكان', '911', 'تايكان'],
+  'شانجان': ['CS95', 'CS75 Plus', 'CS35 Plus', 'UNI-K', 'UNI-V', 'UNI-T', 'السفن', 'ايدو'],
+  'هافال': ['H6', 'جولاين', 'دارقو', 'H9'],
+  'جيلي': ['كولراي', 'امجراند', 'مونجارو', 'توجيلا', 'اوكافانجو'],
+  'شيري': ['تيجو 8 برو', 'تيجو 7 برو', 'تيجو 4', 'اريزو 6'],
+  'إم جي': ['MG GT', 'MG 5', 'MG 6', 'MG ZS', 'MG RX5', 'MG RX8'],
+  'لاند روفر': ['ديفندر', 'رنج روفر سبورت', 'رنج روفر فوغ', 'ايفوك', 'ديسكفري'],
+};
+
 /// 100% Real Live Database Vendors & Branches Map Screen
 class ClientVendorsMapScreen extends StatefulWidget {
   const ClientVendorsMapScreen({super.key});
@@ -258,9 +293,10 @@ class _ClientVendorsMapScreenState extends State<ClientVendorsMapScreen> {
   // Screen Mode: 'list' (Main List view with floating pin) vs 'map' (Full Real Map)
   bool _isMapMode = false;
 
-  // Filter States
+  // Filter States (Brand & Model Filtering)
   String _selectedOrigin = 'all';
   String _selectedBrand = 'الكل';
+  String _selectedModel = 'الكل';
   String _selectedCity = 'الكل';
   String _searchQuery = '';
   String _sortBy = 'distance'; // 'distance', 'rating', 'name'
@@ -322,10 +358,17 @@ class _ClientVendorsMapScreenState extends State<ClientVendorsMapScreen> {
     setState(() => _isLoading = true);
 
     try {
-      String queryParams = '';
+      final qList = <String>[];
       if (_userPosition != null) {
-        queryParams = '?client_lat=${_userPosition!.latitude}&client_lng=${_userPosition!.longitude}';
+        qList.add('client_lat=${_userPosition!.latitude}&client_lng=${_userPosition!.longitude}');
       }
+      if (_selectedBrand != 'الكل') {
+        qList.add('brand=${Uri.encodeComponent(_selectedBrand)}');
+      }
+      if (_selectedModel != 'الكل') {
+        qList.add('model=${Uri.encodeComponent(_selectedModel)}');
+      }
+      final queryParams = qList.isNotEmpty ? '?${qList.join('&')}' : '';
 
       final vendorsFuture = ApiClient.instance.get('/v1/vendors/map$queryParams');
       final rfqsFuture = ApiClient.instance.get('/rfqs');
@@ -762,6 +805,37 @@ class _ClientVendorsMapScreenState extends State<ClientVendorsMapScreen> {
     return false;
   }
 
+  /// Determines if a real database vendor specializes in a specific car model (Requirement 5.1)
+  bool _vendorMatchesModel(Map<String, dynamic> v, String brandName, String modelName) {
+    if (modelName == 'الكل') return true;
+
+    final mQuery = modelName.toLowerCase().trim();
+
+    // 1. Check specialized_models list if present
+    final modelsList = v['specialized_models'] is List
+        ? (v['specialized_models'] as List).map((e) => e.toString().toLowerCase().trim()).toList()
+        : (v['models'] is List ? (v['models'] as List).map((e) => e.toString().toLowerCase().trim()).toList() : <String>[]);
+
+    if (modelsList.contains('all') || v['specializes_in_all_models'] == true) {
+      return true;
+    }
+
+    for (final m in modelsList) {
+      if (m.contains(mQuery) || mQuery.contains(m)) return true;
+    }
+
+    // 2. Check vendor/branch description and name
+    final desc = (v['company_name'] ?? v['name'] ?? v['description'] ?? '').toString().toLowerCase();
+    if (desc.contains(mQuery)) return true;
+
+    // 3. Fallback: if vendor matches the brand, consider them a match for models of that brand
+    if (_vendorMatchesBrand(v, brandName)) {
+      return true;
+    }
+
+    return false;
+  }
+
   List<Map<String, dynamic>> get _filteredAndSortedVendors {
     final list = _vendors.where((v) {
       // 1. City Filter
@@ -772,6 +846,11 @@ class _ClientVendorsMapScreenState extends State<ClientVendorsMapScreen> {
         final matchesAnyMyBrand = _myRequestBrands.any((b) => _vendorMatchesBrand(v, b));
         if (!matchesAnyMyBrand) return false;
       } else if (_selectedBrand != 'الكل' && !_vendorMatchesBrand(v, _selectedBrand)) {
+        return false;
+      }
+
+      // 3. Model Filter (Requirement 5.1)
+      if (_selectedModel != 'الكل' && !_vendorMatchesModel(v, _selectedBrand, _selectedModel)) {
         return false;
       }
 
@@ -907,6 +986,7 @@ class _ClientVendorsMapScreenState extends State<ClientVendorsMapScreen> {
     setState(() {
       _selectedOrigin = originId;
       _selectedBrand = 'الكل';
+      _selectedModel = 'الكل';
       _selectedVendorId = null;
     });
 
@@ -917,6 +997,17 @@ class _ClientVendorsMapScreenState extends State<ClientVendorsMapScreen> {
   void _onBrandSelected(String brandName) {
     setState(() {
       _selectedBrand = brandName;
+      _selectedModel = 'الكل';
+      _selectedVendorId = null;
+    });
+
+    final matches = _filteredAndSortedVendors;
+    _fitMapToVendors(matches);
+  }
+
+  void _onModelSelected(String modelName) {
+    setState(() {
+      _selectedModel = modelName;
       _selectedVendorId = null;
     });
 
@@ -1975,6 +2066,79 @@ class _ClientVendorsMapScreenState extends State<ClientVendorsMapScreen> {
               ],
             ),
           ),
+
+          // ── HORIZONTAL SCROLLING CAR MODEL CHIPS (Requirement 5.1) ──
+          if (_selectedBrand != 'الكل' && kCarModelsByBrand.containsKey(_selectedBrand)) ...[
+            const SizedBox(height: 8),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  Container(
+                    margin: const EdgeInsets.only(left: 6),
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEFF6FF),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: const Color(0xFFBFDBFE)),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.directions_car_filled_rounded, size: 13, color: Color(0xFF2563EB)),
+                        SizedBox(width: 4),
+                        Text(
+                          'الموديل:',
+                          style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w900, color: Color(0xFF1D4ED8)),
+                        ),
+                      ],
+                    ),
+                  ),
+                  // "All Models" Chip
+                  Padding(
+                    padding: const EdgeInsets.only(left: 6),
+                    child: ChoiceChip(
+                      label: const Text('كافة الموديلات (الكل)'),
+                      selected: _selectedModel == 'الكل',
+                      onSelected: (_) => _onModelSelected('الكل'),
+                      selectedColor: const Color(0xFF2563EB),
+                      backgroundColor: const Color(0xFFF8FAFC),
+                      labelStyle: TextStyle(
+                        color: _selectedModel == 'الكل' ? Colors.white : const Color(0xFF475569),
+                        fontSize: 10.5,
+                        fontWeight: _selectedModel == 'الكل' ? FontWeight.w900 : FontWeight.w700,
+                      ),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      showCheckmark: false,
+                    ),
+                  ),
+                  ...kCarModelsByBrand[_selectedBrand]!.map((m) {
+                    final isSel = _selectedModel == m;
+                    return Padding(
+                      padding: const EdgeInsets.only(left: 6),
+                      child: ChoiceChip(
+                        label: Text(m),
+                        selected: isSel,
+                        onSelected: (_) => _onModelSelected(m),
+                        selectedColor: const Color(0xFF2563EB),
+                        backgroundColor: Colors.white,
+                        labelStyle: TextStyle(
+                          color: isSel ? Colors.white : const Color(0xFF1E293B),
+                          fontSize: 10.5,
+                          fontWeight: isSel ? FontWeight.w900 : FontWeight.w700,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          side: BorderSide(color: isSel ? const Color(0xFF2563EB) : const Color(0xFFCBD5E1)),
+                        ),
+                        showCheckmark: false,
+                      ),
+                    );
+                  }),
+                ],
+              ),
+            ),
+          ],
         ],
       ),
     );

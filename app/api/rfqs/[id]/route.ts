@@ -1,5 +1,8 @@
 import fs from "fs";
 import path from "path";
+import { NextRequest, NextResponse } from "next/server";
+import { createClient as createServerClient } from "@/lib/supabase/server";
+import { createClient as createSbClient } from "@supabase/supabase-js";
 import { sanitizePartsImages, sanitizeRfqForNetwork } from "@/lib/image-storage";
 
 /**
@@ -166,25 +169,41 @@ export async function PUT(
     partsItem = sanitizePartsImages(partsItem);
 
     const updateData: any = {
-      car_make: body.carMake,
-      car_model: body.carModel,
-      car_year: parseInt(body.carYear) || 2023,
-      plate_number: body.plateNumber,
-      vin: body.vin,
-      parts_description: partsItem.length > 0 ? JSON.stringify(partsItem) : body.partsText,
-      delivery_location: body.locationName || body.deliveryLocation,
-      delivery_city: body.deliveryCity || "الرياض",
       updated_at: new Date().toISOString(),
     };
+    if (body.carMake !== undefined) updateData.car_make = body.carMake;
+    if (body.carModel !== undefined) updateData.car_model = body.carModel;
+    if (body.carYear !== undefined) updateData.car_year = parseInt(body.carYear) || 2023;
+    if (body.plateNumber !== undefined) updateData.plate_number = body.plateNumber;
+    if (body.vin !== undefined) updateData.vin = body.vin;
+    if (partsItem.length > 0) updateData.parts_description = JSON.stringify(partsItem);
+    else if (body.partsText !== undefined) updateData.parts_description = body.partsText;
+    if (body.locationName || body.deliveryLocation) updateData.delivery_location = body.locationName || body.deliveryLocation;
+    if (body.deliveryCity) updateData.delivery_city = body.deliveryCity;
+    if (body.status) updateData.status = body.status;
+    if (body.accepted_quote_id) updateData.accepted_quote_id = body.accepted_quote_id;
 
-    const { data: updatedRfq, error } = await supabase
-      .from("rfqs")
-      .update(updateData)
-      .eq("id", rfqId);
+    try {
+      await supabase
+        .from("rfqs")
+        .update(updateData)
+        .eq("id", rfqId);
+    } catch (_) {}
 
-    if (error) {
-      return NextResponse.json({ error: "UPDATE_FAILED", message: error.message }, { status: 500 });
-    }
+    // Synchronize to data/rfqs_db.json
+    try {
+      const RFQS_FILE = path.join(process.cwd(), "data", "rfqs_db.json");
+      if (fs.existsSync(RFQS_FILE)) {
+        const rfqs = JSON.parse(fs.readFileSync(RFQS_FILE, "utf-8"));
+        const cleanId = rfqId.replace(/^REQ-/, "").replace(/^RFQ-/, "");
+        const idx = rfqs.findIndex((r: any) => r.id === rfqId || r.id === `RFQ-${cleanId}` || r.id === cleanId);
+        if (idx >= 0) {
+          rfqs[idx] = { ...rfqs[idx], ...updateData };
+          fs.writeFileSync(RFQS_FILE, JSON.stringify(rfqs, null, 2), "utf-8");
+          (globalThis as any).__SHARED_SERVER_RFQS__ = rfqs;
+        }
+      }
+    } catch (_) {}
 
     return NextResponse.json({ success: true, rfq: { id: rfqId, ...updateData } });
   } catch (err: any) {

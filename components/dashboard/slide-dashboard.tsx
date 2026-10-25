@@ -273,9 +273,19 @@ export function SlideDashboard({
     setCurrentUserId(userId);
 
     try {
-      // 1. Fetch Profile
+      // 1. Fetch Profile via backend API (authoritative data from profiles_db.json and session)
       let profileData: any = null;
-      if (userId) {
+      try {
+        const pRes = await fetch("/api/v1/account/profile");
+        if (pRes.ok) {
+          const pJson = await pRes.json();
+          if (pJson.success && pJson.profile) {
+            profileData = pJson.profile;
+          }
+        }
+      } catch (e) {}
+
+      if (!profileData && userId) {
         const { data: pData } = await supabase
           .from("profiles")
           .select("full_name, company_name, specialized_brands, specializes_in_all_brands")
@@ -292,72 +302,44 @@ export function SlideDashboard({
       }
       setProfile(profileData);
 
-      // 2. Fetch Orders (100% Real Scoped DB Data)
+      // 2. Fetch Orders (100% Real Scoped DB Data via /api/v1/orders)
       let ordersData: any[] = [];
-      if (userId) {
-        let ordersQuery = supabase
-          .from("orders")
-          .select("id, status, total_price, created_at, rfq_id, rfqs(car_make, car_model, car_year, plate_number)")
-          .order("created_at", { ascending: false });
-
-        if (role === "client") {
-          ordersQuery = ordersQuery.eq("client_id", userId);
-        } else {
-          ordersQuery = ordersQuery.eq("vendor_id", userId);
+      try {
+        const oRes = await fetch("/api/v1/orders");
+        if (oRes.ok) {
+          const oJson = await oRes.json();
+          if (oJson.success && Array.isArray(oJson.orders)) {
+            ordersData = oJson.orders;
+          }
         }
-        const { data: res } = await ordersQuery;
-        ordersData = res || [];
-      }
-      setOrders((ordersData as Order[]) || []);
+      } catch (e) {}
+      setOrders(ordersData as Order[]);
 
-      // 3. Fetch RFQs (100% Real Scoped DB Data)
+      // 3. Fetch RFQs (100% Real Scoped DB Data via /api/rfqs)
       let rawRfqs: RFQ[] = [];
-      if (role === "client") {
-        if (userId) {
-          const { data: rfqsData } = await supabase
-            .from("rfqs")
-            .select("id, car_make, car_model, car_year, plate_number, vin, parts_description, status, created_at, quotes(id, total_price, vendor_id, created_at)")
-            .eq("client_id", userId)
-            .order("created_at", { ascending: false })
-            .limit(50);
-          rawRfqs = (rfqsData as RFQ[]) || [];
+      try {
+        const rfqRes = await fetch("/api/rfqs");
+        if (rfqRes.ok) {
+          const rfqJson = await rfqRes.json();
+          if (rfqJson.success && Array.isArray(rfqJson.rfqs)) {
+            rawRfqs = rfqJson.rfqs;
+          }
         }
-      } else if (role === "vendor") {
-        const { data: rfqsData } = await supabase
-          .from("rfqs")
-          .select("id, car_make, car_model, car_year, plate_number, vin, parts_description, status, created_at, quotes(id, total_price, vendor_id, created_at)")
-          .eq("status", "open")
-          .order("created_at", { ascending: false })
-          .limit(50);
-        rawRfqs = (rfqsData as RFQ[]) || [];
+      } catch (e) {}
 
-        // If vendor, apply server/source-of-truth brand & category specialization filtering
+      if (role === "vendor" && rawRfqs.length > 0) {
         const vBrands = profileData?.specialized_brands || ["toyota", "lexus", "hyundai", "kia", "gmc", "ford", "nissan"];
-        const vAll = Boolean(profileData?.specializes_in_all_brands);
+        const vAll = Boolean(profileData?.specializes_in_all_brands ?? true);
         rawRfqs = filterRfqsForVendor(rawRfqs, vBrands, vAll);
 
         const vCats = profileData?.specialized_categories || [];
         const vAllCats = profileData?.specializes_in_all_categories !== false;
         rawRfqs = filterRfqsForVendorCategories(rawRfqs, vCats, vAllCats);
       }
-
       setRfqs(rawRfqs);
 
-      // 4. Fetch Real Wallet Balance
-      let realWalletBalance = 0;
-      if (userId) {
-        const { data: wData } = await supabase
-          .from("wallets")
-          .select("balance")
-          .eq("user_id", userId)
-          .maybeSingle();
-
-        if (wData && typeof wData.balance === "number") {
-          realWalletBalance = Number(wData.balance);
-        }
-      }
-
-      // Fetch Wallet Transactions
+      // 4. Wallet Balance & Transactions
+      let realWalletBalance = Number(profileData?.wallet_balance ?? profileData?.balance ?? 0);
       let txsData: WalletTx[] = [];
       if (userId) {
         const { data: tData } = await supabase
@@ -374,25 +356,20 @@ export function SlideDashboard({
       setWalletTxs(txsData);
       setWalletBal(realWalletBalance);
 
-      // 5. Fetch Real Fleet Vehicles (Strictly scoped by user)
-      if (typeof window !== "undefined") {
+      // 5. Fetch Real Fleet Vehicles for Client
+      if (role === "client") {
         try {
-          const rawVehicles = localStorage.getItem("rfq_demo_vehicles_v3");
-          if (rawVehicles) {
-            const parsed = JSON.parse(rawVehicles);
-            const userVehicles = (Array.isArray(parsed) ? parsed : []).filter(
-              (v: any) => !v.deleted_at && (v.client_id === userId || (!v.client_id && userId === "client-demo-id"))
-            );
-            setFleetVehicles(userVehicles);
-          } else {
-            setFleetVehicles([]);
+          const vRes = await fetch("/api/v1/client/vehicles");
+          if (vRes.ok) {
+            const vJson = await vRes.json();
+            if (vJson.success && Array.isArray(vJson.vehicles)) {
+              setFleetVehicles(vJson.vehicles);
+            }
           }
-        } catch (e) {
-          setFleetVehicles([]);
-        }
+        } catch (e) {}
       }
 
-      // 6. Fetch Real Support Tickets
+      // 6. Fetch Support Tickets
       if (userId && role === "client") {
         const { data: suppData } = await supabase
           .from("support_tickets")

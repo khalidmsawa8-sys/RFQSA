@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:rfqsa_mobile/core/routing/app_router.dart';
@@ -399,12 +400,12 @@ class _PartDetailsSheetContent extends StatelessWidget {
 
   Widget _buildPartItemCard(int index, RfqItemModel part, BuildContext context) {
     final typeArabic = part.partType == 'oem' || part.partType == 'original'
-        ? 'أصلي وكالة (OEM)'
+        ? ''
         : part.partType == 'aftermarket' || part.partType == 'commercial'
             ? 'تجاري معتمد'
             : part.partType == 'used'
                 ? 'تشليح / مستعمل'
-                : 'شامل أي نوع';
+                : '';
 
     final hasImages = part.images.isNotEmpty;
 
@@ -483,27 +484,28 @@ class _PartDetailsSheetContent extends StatelessWidget {
             ],
           ),
 
-          const SizedBox(height: 8),
-
-          // Badges Row
-          Wrap(
-            spacing: 6,
-            runSpacing: 6,
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF8FAFC),
-                  borderRadius: BorderRadius.circular(6),
-                  border: Border.all(color: const Color(0xFFCBD5E1)),
+          if (typeArabic.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            // Badges Row
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF8FAFC),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: const Color(0xFFCBD5E1)),
+                  ),
+                  child: Text(
+                    typeArabic,
+                    style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: Color(0xFF334155)),
+                  ),
                 ),
-                child: Text(
-                  typeArabic,
-                  style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: Color(0xFF334155)),
-                ),
-              ),
-            ],
-          ),
+              ],
+            ),
+          ],
 
           if (part.notes != null && part.notes!.isNotEmpty) ...[
             const SizedBox(height: 8),
@@ -535,31 +537,29 @@ class _PartDetailsSheetContent extends StatelessWidget {
           if (hasImages) ...[
             const SizedBox(height: 10),
             const Text(
-              'الصور المرفقة بالقطعة:',
+              'الصور المرفقة بالقطعة (انقر للتكبير 🔍):',
               style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF64748B)),
             ),
             const SizedBox(height: 6),
             SizedBox(
-              height: 70,
+              height: 76,
               child: ListView.separated(
                 scrollDirection: Axis.horizontal,
                 itemCount: part.images.length,
                 separatorBuilder: (_, __) => const SizedBox(width: 8),
                 itemBuilder: (ctx, imgIdx) {
-                  final imgUrl = part.images[imgIdx];
-                  return ClipRRect(
-                    borderRadius: BorderRadius.circular(10),
-                    child: Container(
-                      width: 70,
-                      height: 70,
-                      color: const Color(0xFFF1F5F9),
-                      child: imgUrl.startsWith('http')
-                          ? Image.network(
-                              imgUrl,
-                              fit: BoxFit.cover,
-                              errorBuilder: (_, __, ___) => const Icon(Icons.broken_image_rounded, color: Color(0xFF94A3B8)),
-                            )
-                          : const Icon(Icons.image_rounded, color: Color(0xFF64748B)),
+                  final rawUrl = part.images[imgIdx];
+                  final cleanUrl = rawUrl.startsWith('/') ? 'https://rfqsa.tech$rawUrl' : rawUrl;
+                  return GestureDetector(
+                    onTap: () => _showFullImageDialog(ctx, cleanUrl),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(10),
+                      child: Container(
+                        width: 76,
+                        height: 76,
+                        color: const Color(0xFFF1F5F9),
+                        child: _renderSingleThumbnail(cleanUrl),
+                      ),
                     ),
                   );
                 },
@@ -567,6 +567,83 @@ class _PartDetailsSheetContent extends StatelessWidget {
             ),
           ],
         ],
+      ),
+    );
+  }
+
+  static Widget _renderSingleThumbnail(String url) {
+    if (url.startsWith('data:image')) {
+      try {
+        final b64Part = url.split(',').last;
+        return Image.memory(base64Decode(b64Part), fit: BoxFit.cover);
+      } catch (_) {
+        return const Icon(Icons.broken_image_rounded, color: Color(0xFF94A3B8));
+      }
+    }
+    return Image.network(
+      url,
+      fit: BoxFit.cover,
+      errorBuilder: (_, __, ___) => const Icon(Icons.broken_image_rounded, color: Color(0xFF94A3B8)),
+      loadingBuilder: (ctx, child, progress) {
+        if (progress == null) return child;
+        return const Center(child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)));
+      },
+    );
+  }
+
+  static void _showFullImageDialog(BuildContext context, String url) {
+    showDialog(
+      context: context,
+      builder: (dlgCtx) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.all(12),
+        child: Stack(
+          alignment: Alignment.topRight,
+          children: [
+            InteractiveViewer(
+              panEnabled: true,
+              boundaryMargin: const EdgeInsets.all(20),
+              minScale: 0.5,
+              maxScale: 4.0,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(16),
+                child: url.startsWith('data:image')
+                    ? Image.memory(base64Decode(url.split(',').last), fit: BoxFit.contain)
+                    : Image.network(
+                        url,
+                        fit: BoxFit.contain,
+                        errorBuilder: (_, __, ___) => Container(
+                          padding: const EdgeInsets.all(24),
+                          color: Colors.white,
+                          child: const Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.broken_image_rounded, size: 48, color: Colors.red),
+                              SizedBox(height: 8),
+                              Text('تعذر تحميل الصورة بدقة كاملة'),
+                            ],
+                          ),
+                        ),
+                      ),
+              ),
+            ),
+            Positioned(
+              top: 10,
+              right: 10,
+              child: GestureDetector(
+                onTap: () => Navigator.of(dlgCtx).pop(),
+                child: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: const BoxDecoration(
+                    color: Colors.black54,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.close_rounded, color: Colors.white, size: 20),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

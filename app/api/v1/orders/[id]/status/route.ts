@@ -10,6 +10,7 @@ import {
 import { logActivityEvent } from "@/lib/audit-logger";
 import { getOrCreateCanonicalInvoiceNumber } from "@/lib/invoice-canonical";
 import { triggerOrderStatusUpdatedEvent } from "@/lib/notification-service";
+import { distributeOrderFundsAutomatically } from "@/lib/wallet-distribution";
 
 import fs from "fs";
 import path from "path";
@@ -164,8 +165,9 @@ async function handleStatusUpdate(
     let fulfillmentMethod: FulfillmentMethod = "DELIVERY";
     if (
       order.fulfillment_method === "BRANCH_PICKUP" ||
-      order.rfqs?.delivery_location?.includes("فرع") ||
-      order.rfqs?.delivery_location?.includes("الاستلام من الفرع")
+      order.fulfillment_method === "SELF_PICKUP" ||
+      order.delivery_method === "pickup" ||
+      order.is_pickup === true
     ) {
       fulfillmentMethod = "BRANCH_PICKUP";
     }
@@ -219,6 +221,19 @@ async function handleStatusUpdate(
           .eq("order_id", id);
       } catch (invErr) {
         console.warn("Invoice update warning:", invErr);
+      }
+    }
+
+    // Execute automated wallet distribution
+    const settlementTriggers: string[] = ["DELIVERED", "PICKED_UP", "COMPLETED", "CONFIRMED", "PAID", "RECEIVED"];
+    if (settlementTriggers.includes(String(nextStatus).toUpperCase())) {
+      try {
+        await distributeOrderFundsAutomatically({
+          orderId: id,
+          paymentSource: (order.payment_method === "wallet" || order.payment_source === "wallet") ? "wallet" : "external",
+        });
+      } catch (distErr) {
+        console.warn("Automated wallet distribution warning:", distErr);
       }
     }
 

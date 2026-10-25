@@ -53,6 +53,9 @@ interface Invoice {
   total_amount: number;
   tax_amount: number;
   subtotal: number;
+  platform_commission?: number;
+  platform_commission_percent?: number;
+  vat_percent?: number;
   issued_at: string;
   notes: string | null;
   deal_id: string;
@@ -120,6 +123,44 @@ export default function InvoicesPage() {
   const [userRole, setUserRole] = useState<string | null>(null);
   const supabase = createClient();
 
+  const [platformSettings, setPlatformSettings] = useState<{
+    vat_percent: number;
+    platform_commission_percent: number;
+    platform_name: string;
+    tax_number: string;
+    cr_number: string;
+    phone: string;
+    email: string;
+    address: string;
+  }>({
+    vat_percent: 15,
+    platform_commission_percent: 3,
+    platform_name: "منصة طلبات عروض الأسعار (RFQ)",
+    tax_number: "310123456700003",
+    cr_number: "1010123456",
+    phone: "+966 11 000 0000",
+    email: "info@rfq.sa",
+    address: "الرياض، المملكة العربية السعودية",
+  });
+
+  useEffect(() => {
+    fetch("/api/v1/settings")
+      .then((r) => r.json())
+      .then((d) => {
+        const s = d?.settings || d?.data;
+        if (s) {
+          setPlatformSettings((prev) => ({
+            ...prev,
+            vat_percent: Number(s.vat_percent ?? 15),
+            platform_commission_percent: Number(s.platform_commission_percent ?? 3),
+            tax_number: s.vat_number || prev.tax_number,
+            cr_number: s.cr_number || prev.cr_number,
+          }));
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   // Advanced filter sheet
   const [filterOpen, setFilterOpen] = useState(false);
   const [dateFrom, setDateFrom] = useState("");
@@ -175,13 +216,27 @@ export default function InvoicesPage() {
         vehicle,
         rfq?.plate_number || "",
         Number(inv.subtotal || 0).toFixed(2),
+        Number(inv.platform_commission || 0).toFixed(2),
         Number(inv.tax_amount || 0).toFixed(2),
         Number(inv.total_amount || 0).toFixed(2),
         inv.issued_at ? new Date(inv.issued_at).toLocaleDateString("ar-SA") : "",
       ];
     });
 
-    const header = ["رقم الفاتورة","رقم الطلب","الحالة","المورد","العميل","المركبة","رقم اللوحة","الإجمالي الفرعي","الضريبة","الإجمالي الكلي","التاريخ"];
+    const header = [
+      "رقم الفاتورة",
+      "رقم الطلب",
+      "الحالة",
+      "المورد",
+      "العميل",
+      "المركبة",
+      "رقم اللوحة",
+      "قبل الضريبة والعمولة",
+      `عمولة المنصة (${platformSettings.platform_commission_percent}%)`,
+      `ضريبة القيمة المضافة (${platformSettings.vat_percent}%)`,
+      "الإجمالي الكلي",
+      "التاريخ"
+    ];
     const csv = [header, ...rows]
       .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","))
       .join("\n");
@@ -296,6 +351,7 @@ export default function InvoicesPage() {
     const enrichedInvoices = (invoiceData || []).map((inv: any) => {
       const deal = dealMap[inv.deal_id];
       const order = (completedOrders || []).find((o: any) => o.id === deal?.order_id);
+      const dlv = order ? deliveryByOrder[order.id] : null;
       // Use orders.total_price as the source of truth — same value shown in deal details
       const realTotal = order ? Number(order.total_price || 0) : Number(inv.total_amount || 0);
       // Prefer invoice_items from the invoices table; fall back to deal_items if empty
@@ -309,11 +365,30 @@ export default function InvoicesPage() {
             unit_price: Number(di.unit_price),
             line_total: Number(di.line_total ?? di.unit_price * di.quantity),
           })) : []);
-      const dlv = order ? deliveryByOrder[order.id] : undefined;
+      const commRate = Number(inv.platform_commission_percent ?? platformSettings.platform_commission_percent ?? 3);
+      const vatRate = Number(inv.vat_percent ?? platformSettings.vat_percent ?? 15);
+      const delivery = Number(dlv?.delivery_cost || 0);
+      const netBase = Math.max(0, realTotal - delivery);
+      const factor = 1 + (commRate / 100) + (vatRate / 100);
+      const itemsSum = invoiceItems.reduce((acc: number, it: any) => acc + ((Number(it.unit_price) || 0) * (Number(it.quantity) || 1)), 0);
+      const calcSubtotal = itemsSum > 0
+        ? Number(itemsSum.toFixed(2))
+        : (Number(inv.subtotal) && Number(inv.subtotal) < realTotal
+            ? Number(inv.subtotal)
+            : Number((netBase / factor).toFixed(2)));
+      const calcCommission = Number(inv.platform_commission) || Number(((calcSubtotal * commRate) / 100).toFixed(2));
+      const calcTax = Number(inv.tax_amount) && Number(inv.tax_amount) > 0 && Number(inv.tax_amount) < realTotal
+        ? Number(inv.tax_amount)
+        : Number(((calcSubtotal * vatRate) / 100).toFixed(2));
+
       return {
         ...inv,
         total_amount: realTotal,
-        subtotal: realTotal,
+        subtotal: calcSubtotal,
+        platform_commission: calcCommission,
+        platform_commission_percent: commRate,
+        tax_amount: calcTax,
+        vat_percent: vatRate,
         invoice_items: invoiceItems,
         deals: deal ? { ...deal, orders: order ? { id: order.id, rfq_id: order.rfq_id, rfqs: order.rfqs } : null } : null,
         client_profile: deal?.client_id ? profileMap[deal.client_id] : null,
@@ -331,6 +406,13 @@ export default function InvoicesPage() {
         const deal = orderToDeal[o.id];
         if (!deal) return null;
         const realTotal = Number(o.total_price || 0);
+        const dlv = deliveryByOrder[o.id];
+        const commRate = Number(o.platform_commission_percent ?? platformSettings.platform_commission_percent ?? 3);
+        const vatRate = Number(o.vat_percent ?? platformSettings.vat_percent ?? 15);
+        const delivery = Number(dlv?.delivery_cost || 0);
+        const netBase = Math.max(0, realTotal - delivery);
+        const factor = 1 + (commRate / 100) + (vatRate / 100);
+
         // Pull deal_items for this order as the line items on the synthetic invoice
         const syntheticItems = (dealItemsByOrder[o.id] || []).map((di: any) => ({
           id: di.id,
@@ -340,14 +422,23 @@ export default function InvoicesPage() {
           unit_price: Number(di.unit_price),
           line_total: Number(di.line_total ?? di.unit_price * di.quantity),
         }));
-        const dlv = deliveryByOrder[o.id];
+
+        const itemsSum = syntheticItems.reduce((acc: number, it: any) => acc + (it.unit_price * it.quantity), 0);
+        const calcSubtotal = itemsSum > 0
+          ? Number(itemsSum.toFixed(2))
+          : (Number(o.subtotal) || Number((netBase / factor).toFixed(2)));
+        const calcCommission = Number(o.platform_commission) || Number(((calcSubtotal * commRate) / 100).toFixed(2));
+        const calcTax = Number(o.tax_amount) || Number(((calcSubtotal * vatRate) / 100).toFixed(2));
         return {
           id: `synthetic-${o.id}`,
           invoice_number: `ORD-${o.id.slice(0, 8).toUpperCase()}`,
           status: "issued",
           total_amount: realTotal,
-          tax_amount: 0,
-          subtotal: realTotal,
+          subtotal: calcSubtotal,
+          platform_commission: calcCommission,
+          platform_commission_percent: commRate,
+          tax_amount: calcTax,
+          vat_percent: vatRate,
           issued_at: o.created_at,
           notes: null,
           deal_id: deal.id,
@@ -797,12 +888,6 @@ export default function InvoicesPage() {
                       <PopoverContent className="w-56 rounded-xl p-3" dir="rtl">
                         <p className="font-semibold text-sm">{partyName}</p>
                         <p className="text-xs text-slate-400 mt-0.5">{otherLabel}</p>
-                        {otherParty?.phone && (
-                          <div className="flex items-center gap-1.5 mt-2 text-xs text-slate-500">
-                            <Phone className="w-3 h-3" />
-                            <span dir="ltr" className="font-mono text-left">{otherParty.phone}</span>
-                          </div>
-                        )}
                         {invoice.client_rating && <StarRating rating={invoice.client_rating} />}
                       </PopoverContent>
                     </Popover>
@@ -823,9 +908,13 @@ export default function InvoicesPage() {
                   {/* الإجمالي */}
                   <div className="text-right">
                     <p className="text-sm font-bold text-slate-800 leading-none">
-                      {formatAmount(Number(invoice.total_amount))}
+                      {formatAmount(Number(invoice.total_amount))} <span className="text-[10px] text-slate-400 font-sans">ر.س</span>
                     </p>
-                    <p className="text-[11px] text-slate-400 mt-0.5">ريال</p>
+                    <div className="mt-1 flex flex-col gap-0.5 text-[10px] font-mono">
+                      <span className="text-slate-500">قبل الضريبة: {Number(invoice.subtotal || 0).toLocaleString("ar-SA", { minimumFractionDigits: 2 })} ر.س</span>
+                      <span className="text-indigo-600 font-bold">عمولة ({invoice.platform_commission_percent || platformSettings.platform_commission_percent}%): +{Number(invoice.platform_commission || 0).toLocaleString("ar-SA", { minimumFractionDigits: 2 })} ر.س</span>
+                      <span className="text-blue-600 font-bold">ضريبة ({invoice.vat_percent || platformSettings.vat_percent}%): +{Number(invoice.tax_amount || 0).toLocaleString("ar-SA", { minimumFractionDigits: 2 })} ر.س</span>
+                    </div>
                   </div>
 
                   {/* التاريخ */}
@@ -839,16 +928,23 @@ export default function InvoicesPage() {
                   {/* PDF Button */}
                   <div className="flex justify-end">
                     <InvoicePDFExport
-                              invoice={{
-                              id: invoice.id,
-                              invoice_number: invoice.invoice_number,
-                              issued_at: invoice.issued_at || "",
-                              status: invoice.status,
-                              notes: invoice.notes,
-                              tax_amount: Number(invoice.tax_amount ?? 0),
-                              delivery_cost: Number(invoice.delivery_cost ?? 0),
-                              delivery_days: invoice.delivery_days,
-                              }}
+                      platformSettings={platformSettings}
+                      userRole={userRole === "vendor" ? "vendor" : "client"}
+                      invoice={{
+                        id: invoice.id,
+                        invoice_number: invoice.invoice_number,
+                        issued_at: invoice.issued_at || "",
+                        status: invoice.status,
+                        notes: invoice.notes,
+                        total_amount: Number(invoice.total_amount || 0),
+                        subtotal: Number(invoice.subtotal || 0),
+                        platform_commission: Number(invoice.platform_commission || 0),
+                        platform_commission_percent: invoice.platform_commission_percent || platformSettings.platform_commission_percent,
+                        tax_amount: Number(invoice.tax_amount ?? 0),
+                        vat_percent: invoice.vat_percent || platformSettings.vat_percent,
+                        delivery_cost: Number(invoice.delivery_cost ?? 0),
+                        delivery_days: invoice.delivery_days,
+                      }}
                       vendor={{
                         full_name: invoice.vendor_profile?.full_name,
                         company_name: invoice.vendor_profile?.company_name,

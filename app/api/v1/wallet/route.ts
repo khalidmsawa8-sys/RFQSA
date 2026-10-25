@@ -111,7 +111,10 @@ export async function GET(req: NextRequest) {
 
     const targetIdList = Array.from(candidateIds);
 
-    // 5. Fetch transactions from the authoritative server ledger
+    // 5. Fetch transactions from the authoritative server ledger and local db
+    const WALLET_TX_FILE = path.join(DATA_DIR, "wallet_transactions_db.json");
+    const diskTransactions = loadJson<any[]>(WALLET_TX_FILE, []);
+
     const { data: rawTxList, error: txError } = await supabase
       .from("wallet_transactions")
       .select("*")
@@ -123,7 +126,30 @@ export async function GET(req: NextRequest) {
       console.error("[WALLET_API_TX_ERROR]:", txError);
     }
 
-    let transactions = rawTxList || [];
+    const txMap = new Map<string, any>();
+    (rawTxList || []).forEach((t: any) => {
+      if (t && t.id) txMap.set(t.id, t);
+    });
+
+    // Filter disk transactions strictly for this user
+    diskTransactions.forEach((tx: any) => {
+      if (!tx || !tx.id) return;
+      let matches = false;
+      if (targetUserId === "vendor-demo-id") {
+        matches = tx.user_id === "vendor-demo-id" || tx.user_id === "v-supplier-1" || targetIdList.includes(tx.user_id);
+      } else if (targetUserId === "client-demo-id") {
+        matches = tx.user_id === "client-demo-id" || tx.user_id === "client-1" || targetIdList.includes(tx.user_id);
+      } else {
+        matches = targetIdList.includes(tx.user_id) || tx.user_id === targetUserId;
+      }
+
+      if (matches && !txMap.has(tx.id)) {
+        txMap.set(tx.id, tx);
+      }
+    });
+
+    let transactions = Array.from(txMap.values());
+
     if (transactions.length === 0 && matchedMember?.organization_id) {
       const orgKey = matchedMember.organization_id.replace(/^org-/, "");
       const { data: orgTx } = await supabase
@@ -136,7 +162,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // 6. Enrich with orders from orders_db.json if missing (e.g. newly completed orders)
+    // 6. Enrich with orders strictly belonging to this tenant/user
     const allOrders = loadJson<any[]>(ORDERS_FILE, []);
     const isVendor = profile?.role === "vendor" || targetUserId.includes("vendor") || cookieSession === "vendor" || referer.includes("/vendor");
     const isClient = profile?.role === "client" || targetUserId.includes("client") || cookieSession === "client" || referer.includes("/client");
@@ -152,11 +178,17 @@ export async function GET(req: NextRequest) {
       const cleanNum = extractCleanOrderNumber(ord.id);
       if (!cleanNum || existingOrderIds.has(cleanNum)) continue;
 
-      const orderAmount = Number(ord.total_price || ord.total_amount || 48.0);
+      const orderAmount = Number(ord.total_price || ord.total_amount || 0);
       const orderDate = ord.completed_at || ord.created_at || new Date().toISOString();
 
       if (isVendor) {
-        // Vendor gets credit transaction for fulfilled order
+        // STRICT VENDOR CHECK: Only add orders belonging to this vendor
+        const belongsToVendor =
+          ord.vendor_id === targetUserId ||
+          (targetUserId === "vendor-demo-id" && (ord.vendor_id === "vendor-demo-id" || ord.vendor_id === "v-supplier-1" || !ord.vendor_id));
+
+        if (!belongsToVendor) continue;
+
         transactions.push({
           id: `TXN-ORD-${cleanNum}-V`,
           user_id: targetUserId,
@@ -175,7 +207,13 @@ export async function GET(req: NextRequest) {
         });
         existingOrderIds.add(cleanNum);
       } else if (isClient) {
-        // Client gets debit transaction
+        // STRICT CLIENT CHECK: Only add orders belonging to this client
+        const belongsToClient =
+          ord.client_id === targetUserId ||
+          (targetUserId === "client-demo-id" && (ord.client_id === "client-demo-id" || ord.client_id === "client-1" || !ord.client_id));
+
+        if (!belongsToClient) continue;
+
         transactions.push({
           id: `TXN-ORD-${cleanNum}-C`,
           user_id: targetUserId,
@@ -260,13 +298,6 @@ export async function GET(req: NextRequest) {
     });
 
     // 8. Compute accurate real-time balance & aggregates
-    let currentBalance = 0;
-    if (formattedTransactions.length > 0 && formattedTransactions[0].balance_after > 0) {
-      currentBalance = formattedTransactions[0].balance_after;
-    } else {
-      currentBalance = Number(profile?.balance ?? (profile as any)?.wallet_balance ?? 0);
-    }
-
     const totalCredit = formattedTransactions
       .filter((t: any) => t.type === "credit")
       .reduce((sum: number, t: any) => sum + Number(t.amount || 0), 0);
@@ -274,6 +305,13 @@ export async function GET(req: NextRequest) {
     const totalDebit = formattedTransactions
       .filter((t: any) => t.type === "debit")
       .reduce((sum: number, t: any) => sum + Number(t.amount || 0), 0);
+
+    let currentBalance = 0;
+    if (isVendor) {
+      currentBalance = Math.max(0, totalCredit - totalDebit);
+    } else {
+      currentBalance = Number(profile?.balance ?? (profile as any)?.wallet_balance ?? Math.max(0, totalCredit - totalDebit));
+    }
 
     return NextResponse.json(
       {

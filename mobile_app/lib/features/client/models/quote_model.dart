@@ -39,7 +39,7 @@ class QuoteModel extends Equatable {
       vendorId: json['vendor_id']?.toString() ?? '',
       totalPrice: double.tryParse(json['total_price']?.toString() ?? '0') ?? 0.0,
       deliveryDays: int.tryParse(json['delivery_days']?.toString() ?? '1') ?? 1,
-      deliveryCost: double.tryParse(json['delivery_cost']?.toString() ?? '0') ?? 0.0,
+      deliveryCost: double.tryParse((json['delivery_cost'] ?? json['delivery_fee'])?.toString() ?? '0') ?? 0.0,
       notes: json['notes']?.toString(),
       status: json['status']?.toString() ?? 'pending',
       vendorName: json['profiles']?['full_name'] ?? json['profiles']?['company_name'] ?? json['vendor']?['full_name'] ?? 'مؤسسة قطع غيار معتمدة',

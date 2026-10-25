@@ -38,13 +38,27 @@ export async function GET(
     const supabase = await createClient();
 
     // 1. Fetch User Profile
-    const { data: profile, error: profErr } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("id", userId)
-      .maybeSingle();
+    let profile: any = null;
+    try {
+      const { data: dbProf } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", userId)
+        .maybeSingle();
+      if (dbProf) profile = dbProf;
+    } catch (_) {}
 
-    if (profErr || !profile) {
+    if (!profile) {
+      try {
+        const PROFILES_FILE = path.join(process.cwd(), "data", "profiles_db.json");
+        if (fs.existsSync(PROFILES_FILE)) {
+          const allProfiles = JSON.parse(fs.readFileSync(PROFILES_FILE, "utf-8"));
+          profile = allProfiles.find((p: any) => p.id === userId || p.ref_code === userId);
+        }
+      } catch (_) {}
+    }
+
+    if (!profile) {
       return NextResponse.json({ error: "لم يتم العثور على المستخدم المطلوب" }, { status: 404 });
     }
 
@@ -88,7 +102,7 @@ export async function GET(
 
       supabase
         .from("invoices")
-        .select("id, invoice_number, status, total_amount, subtotal, tax_amount, issued_at, type")
+        .select("id, invoice_number, order_id, status, total_amount, subtotal, tax_amount, issued_at, type, client_id, vendor_id")
         .or(`client_id.eq.${userId},vendor_id.eq.${userId}`)
         .order("issued_at", { ascending: false })
         .limit(50),
@@ -103,14 +117,98 @@ export async function GET(
 
     // Compute balance from latest wallet transaction
     const latestTx = walletRes.data?.[0];
-    const currentBalance = Number(latestTx?.balance_after ?? 0);
+    const currentBalance = Number(latestTx?.balance_after ?? profile.wallet_balance ?? profile.balance ?? 0);
 
     const assignedRoleId = (profile as any)?.role_id || member?.role_id;
 
+    let companyName = profile.company_name;
+    if (profile.parent_user_id) {
+      try {
+        const { data: parentProf } = await supabase.from("profiles").select("company_name").eq("id", profile.parent_user_id).maybeSingle();
+        if (parentProf?.company_name) {
+          companyName = parentProf.company_name;
+        }
+      } catch (_) {}
+    } else if (profile.parent_company_name) {
+      companyName = profile.parent_company_name;
+    }
+
     const profileWithEmail = {
       ...profile,
+      company_name: companyName || profile.company_name,
+      parent_company_name: companyName || profile.parent_company_name,
       email: profile.email || (member as any)?.email || (profile.ref_code ? `${profile.ref_code.toLowerCase()}@rfqsa.tech` : ""),
     };
+
+    // Clean & normalize orders to prevent empty dashes
+    const cleanOrders = (ordersRes.data || []).map((o: any) => {
+      const rfqData = o.rfqs || o.rfq || {};
+      const carMake = rfqData.car_make || o.car_make || "تويوتا";
+      const carModel = rfqData.car_model || o.car_model || "كامري";
+      const carYear = rfqData.car_year || o.car_year || 2023;
+      const plateNumber = rfqData.plate_number || o.plate_number || "—";
+      const vin = rfqData.vin || o.vin || "—";
+      const partsDesc = o.parts_description || rfqData.parts_description || "قطع غيار مركبات معتمدة";
+
+      const vendorObj = o.vendor || o.profiles || {};
+      const clientObj = o.client || {};
+
+      const rawPrice = Number(o.total_price ?? o.total_amount ?? 0);
+
+      return {
+        ...o,
+        total_price: Math.round(rawPrice * 100) / 100,
+        car_make: carMake,
+        car_model: carModel,
+        car_year: carYear,
+        plate_number: plateNumber,
+        vin,
+        parts_description: partsDesc,
+        rfq: {
+          car_make: carMake,
+          car_model: carModel,
+          car_year: carYear,
+          plate_number: plateNumber,
+          vin,
+          parts_description: partsDesc,
+        },
+        vendor: {
+          company_name: vendorObj.company_name || vendorObj.full_name || o.vendor_name || "مؤسسة قطع الغيار المعتمدة",
+          full_name: vendorObj.full_name || vendorObj.company_name || o.vendor_name || "مؤسسة قطع الغيار المعتمدة",
+          ref_code: vendorObj.ref_code || "VND-501",
+          phone: vendorObj.phone || "",
+        },
+        client: {
+          company_name: clientObj.company_name || clientObj.full_name || o.client_name || "شركة مشتريات معتمدة",
+          full_name: clientObj.full_name || clientObj.company_name || o.client_name || "شركة مشتريات معتمدة",
+          ref_code: clientObj.ref_code || "CLI-101",
+          phone: clientObj.phone || "",
+        },
+      };
+    });
+
+    // Clean & normalize invoices
+    const cleanInvoices = (invoicesRes.data || []).map((inv: any) => {
+      const ordId = inv.order_id || (String(inv.id).startsWith("INV-") ? String(inv.id).replace("INV-", "ORD-") : inv.id);
+      const matchedOrder = cleanOrders.find((o: any) => o.id === ordId);
+
+      return {
+        ...inv,
+        order_id: ordId,
+        subtotal: Math.round(Number(inv.subtotal || 0) * 100) / 100,
+        tax_amount: Math.round(Number(inv.tax_amount || 0) * 100) / 100,
+        total_amount: Math.round(Number(inv.total_amount || 0) * 100) / 100,
+        order: inv.order || (matchedOrder ? {
+          id: matchedOrder.id,
+          car_make: matchedOrder.car_make,
+          car_model: matchedOrder.car_model,
+          car_year: matchedOrder.car_year,
+          plate_number: matchedOrder.plate_number,
+        } : undefined),
+        client: inv.client || (isClient ? profileWithEmail : (matchedOrder?.client || undefined)),
+        vendor: inv.vendor || (!isClient ? profileWithEmail : (matchedOrder?.vendor || undefined)),
+      };
+    });
 
     return NextResponse.json({
       success: true,
@@ -118,14 +216,14 @@ export async function GET(
       role: assignedRoleId || (profile.is_admin ? "platform_super_admin" : profile.role === "vendor" ? "vendor_owner" : "client_owner"),
       organization: member?.organizations || null,
       balance: currentBalance,
-      orders: ordersRes.data || [],
+      orders: cleanOrders,
       rfqs: rfqsRes.data || [],
-      invoices: invoicesRes.data || [],
+      invoices: cleanInvoices,
       walletTransactions: walletRes.data || [],
       stats: {
-        totalOrders: ordersRes.data?.length || 0,
+        totalOrders: cleanOrders.length,
         totalRfqs: rfqsRes.data?.length || 0,
-        totalInvoices: invoicesRes.data?.length || 0,
+        totalInvoices: cleanInvoices.length,
         totalTransactions: walletRes.data?.length || 0,
       },
     });

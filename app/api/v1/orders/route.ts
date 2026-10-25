@@ -3,6 +3,8 @@ import { createClient } from "@/lib/supabase/server";
 import { CourierService } from "@/lib/courier-service";
 import { normalizeInvoiceNumber } from "@/lib/invoice-canonical";
 import { triggerOrderStatusUpdatedEvent, triggerQuoteAcceptedEvent } from "@/lib/notification-service";
+import { distributeOrderFundsAutomatically } from "@/lib/wallet-distribution";
+import { getAuthoritativeUserBalance } from "@/lib/wallet-ledger";
 import fs from "fs";
 import path from "path";
 
@@ -11,6 +13,19 @@ const ORDERS_FILE = path.join(DATA_DIR, "orders_db.json");
 const RFQS_FILE = path.join(DATA_DIR, "rfqs_db.json");
 const QUOTES_FILE = path.join(DATA_DIR, "quotes_db.json");
 const DELIVERIES_FILE = path.join(DATA_DIR, "deliveries_db.json");
+const INVOICES_FILE = path.join(DATA_DIR, "invoices_db.json");
+const SETTINGS_FILE = path.join(DATA_DIR, "system_settings.json");
+
+const PROFILES_FILE = path.join(DATA_DIR, "profiles_db.json");
+
+function loadSettings(): any {
+  try {
+    if (fs.existsSync(SETTINGS_FILE)) {
+      return JSON.parse(fs.readFileSync(SETTINGS_FILE, "utf-8"));
+    }
+  } catch {}
+  return { platform_commission_percent: 15, client_platform_fee_percent: 5, vendor_platform_fee_percent: 15, vat_percent: 15 };
+}
 
 function loadJson(file: string): any[] {
   try {
@@ -32,7 +47,7 @@ function saveJson(file: string, data: any[]) {
 
 export const dynamic = "force-dynamic";
 
-function enrichOrder(o: any, rfqs: any[], quotes: any[], deliveries: any[]): any {
+function enrichOrder(o: any, rfqs: any[], quotes: any[], deliveries: any[], profiles: any[] = []): any {
   let matchedRfq = o.rfqs || o.rfq;
   if (!matchedRfq && o.rfq_id) {
     matchedRfq = rfqs.find((r: any) => r.id === o.rfq_id);
@@ -78,9 +93,73 @@ function enrichOrder(o: any, rfqs: any[], quotes: any[], deliveries: any[]): any
     orderItems = matchedQuote.items;
   }
 
+  const settings = loadSettings();
+  const clientFeeRate = Number(
+    o.client_platform_fee_percent ??
+    matchedQuote?.client_platform_fee_percent ??
+    settings.client_platform_fee_percent ??
+    settings.platform_commission_percent ??
+    5
+  );
+  const vendorFeeRate = Number(
+    o.vendor_platform_fee_percent ??
+    matchedQuote?.vendor_platform_fee_percent ??
+    settings.vendor_platform_fee_percent ??
+    15
+  );
+  const vatRate = Number(o.vat_percent ?? matchedQuote?.vat_percent ?? settings.vat_percent ?? 15);
   const totalPrice = Number(o.total_price || o.total_amount || matchedQuote?.total_price || 0);
-  const taxAmount = totalPrice * (15 / 115);
-  const subtotal = totalPrice - taxAmount;
+  const deliveryFee = Number(o.delivery_fee || 0);
+
+  let subtotal = Number(o.subtotal || o.parts_subtotal || 0);
+  let clientPlatformFee = Number(o.client_platform_fee ?? o.platform_commission ?? 0);
+  let vendorPlatformFee = Number(o.vendor_platform_fee ?? 0);
+  let taxAmount = Number(o.tax_amount || 0);
+
+  if (!subtotal || !clientPlatformFee || !taxAmount) {
+    const netBase = Math.max(0, totalPrice - deliveryFee);
+    const factor = 1 + (clientFeeRate / 100) + (vatRate / 100);
+    subtotal = Number((netBase / factor).toFixed(2));
+    clientPlatformFee = Number(((subtotal * clientFeeRate) / 100).toFixed(2));
+    vendorPlatformFee = Number(((subtotal * vendorFeeRate) / 100).toFixed(2));
+    taxAmount = Number(((subtotal * vatRate) / 100).toFixed(2));
+  } else if (!vendorPlatformFee) {
+    vendorPlatformFee = Number(((subtotal * vendorFeeRate) / 100).toFixed(2));
+  }
+
+  // Resolve Real Profiles for Client & Vendor
+  const targetClientId = o.client_id || matchedRfq?.client_id;
+  const targetVendorId = o.vendor_id || matchedQuote?.vendor_id;
+
+  const clientProfile = profiles.find((p: any) =>
+    (targetClientId && p.id === targetClientId) ||
+    (matchedRfq?.client?.phone && p.phone === matchedRfq?.client?.phone) ||
+    (o.client?.email && p.email === o.client?.email)
+  );
+
+  const vendorProfile = profiles.find((p: any) =>
+    (targetVendorId && p.id === targetVendorId) ||
+    (matchedQuote?.profiles?.phone && p.phone === matchedQuote?.profiles?.phone) ||
+    (o.vendor?.email && p.email === o.vendor?.email)
+  );
+
+  const clientName =
+    clientProfile?.company_name ||
+    clientProfile?.full_name ||
+    matchedRfq?.client?.company_name ||
+    matchedRfq?.client?.full_name ||
+    (o.client?.company_name && o.client.company_name !== "شركة المشتريات الوطنية" ? o.client.company_name : "") ||
+    (o.client?.full_name && o.client.full_name !== "شركة المشتريات الوطنية" ? o.client.full_name : "") ||
+    "العميل المعتمد";
+
+  const vendorName =
+    vendorProfile?.company_name ||
+    vendorProfile?.full_name ||
+    matchedQuote?.profiles?.company_name ||
+    matchedQuote?.profiles?.full_name ||
+    (o.vendor?.company_name && o.vendor.company_name !== "مؤسسة قطع الغيار المعتمدة" ? o.vendor.company_name : "") ||
+    (o.vendor?.full_name && o.vendor.full_name !== "مؤسسة قطع الغيار المعتمدة" ? o.vendor.full_name : "") ||
+    "المورد المعتمد";
 
   return {
     ...o,
@@ -90,7 +169,16 @@ function enrichOrder(o: any, rfqs: any[], quotes: any[], deliveries: any[]): any
     total_price: totalPrice,
     total_amount: totalPrice,
     subtotal: subtotal,
+    parts_subtotal: subtotal,
+    platform_commission: clientPlatformFee,
+    platform_commission_percent: clientFeeRate,
+    client_platform_fee: clientPlatformFee,
+    client_platform_fee_percent: clientFeeRate,
+    vendor_platform_fee: vendorPlatformFee,
+    vendor_platform_fee_percent: vendorFeeRate,
     tax_amount: taxAmount,
+    vat_percent: vatRate,
+    delivery_fee: deliveryFee,
     invoice_number: normalizeInvoiceNumber(o.invoice_number, o.id),
     rfqs: matchedRfq ? {
       id: matchedRfq.id,
@@ -107,23 +195,23 @@ function enrichOrder(o: any, rfqs: any[], quotes: any[], deliveries: any[]): any
     quote: matchedQuote || null,
     items: orderItems,
     invoice_items: orderItems,
-    client: o.client || {
-      id: o.client_id || "client-demo-id",
-      full_name: matchedRfq?.client?.full_name || "شركة المشتريات الوطنية",
-      company_name: matchedRfq?.client?.company_name || "شركة المشتريات الوطنية",
-      phone: matchedRfq?.client?.phone || "0501234567",
-      tax_number: "300123456700003",
-      commercial_register: "1010987654",
-      national_address: "الرياض - طريق الملك فهد - حي العليا",
+    client: {
+      id: targetClientId || clientProfile?.id || "client-user",
+      full_name: clientName,
+      company_name: clientName,
+      phone: clientProfile?.phone || matchedRfq?.client?.phone || o.client?.phone || "",
+      tax_number: clientProfile?.tax_number || o.client?.tax_number || "300123456700003",
+      commercial_register: clientProfile?.commercial_register || o.client?.commercial_register || "1010987654",
+      national_address: clientProfile?.national_address || clientProfile?.address || o.client?.national_address || "المملكة العربية السعودية",
     },
-    vendor: o.vendor || o.profiles || matchedQuote?.profiles || {
-      id: o.vendor_id || "vendor-demo-id",
-      full_name: "مؤسسة قطع الغيار المعتمدة",
-      company_name: "مؤسسة قطع الغيار المعتمدة",
-      phone: "0551122334",
-      tax_number: "300987654300003",
-      commercial_register: "1010887766",
-      national_address: "الرياض - صناعية الشفاء - طريق خريص",
+    vendor: {
+      id: targetVendorId || vendorProfile?.id || "vendor-user",
+      full_name: vendorName,
+      company_name: vendorName,
+      phone: vendorProfile?.phone || matchedQuote?.profiles?.phone || o.vendor?.phone || "",
+      tax_number: vendorProfile?.tax_number || o.vendor?.tax_number || "300987654300003",
+      commercial_register: vendorProfile?.commercial_register || o.vendor?.commercial_register || "1010887766",
+      national_address: vendorProfile?.national_address || vendorProfile?.address || o.vendor?.national_address || "المملكة العربية السعودية",
     },
   };
 }
@@ -133,15 +221,26 @@ export async function GET(req: NextRequest) {
   const id = searchParams.get("id");
   const rfqId = searchParams.get("rfq_id");
   const isSync = searchParams.get("sync") === "true" || searchParams.get("live_sync") === "1";
-  const vendorId = searchParams.get("vendor_id");
-  const clientId = searchParams.get("client_id");
+
+  const headerUserId = req.headers.get("x-user-id") || "";
+  const headerRole = req.headers.get("x-user-role") || "";
+
+  const cookieUserId = req.cookies.get("rfq_user_id")?.value || "";
+  const cookieRole = req.cookies.get("rfq_session")?.value || "";
+
+  const effectiveUserId = headerUserId || cookieUserId;
+  const effectiveRole = headerRole || cookieRole;
+
+  const vendorId = searchParams.get("vendor_id") || (effectiveRole === "vendor" ? effectiveUserId : undefined);
+  const clientId = searchParams.get("client_id") || (effectiveRole === "client" ? effectiveUserId : undefined);
 
   const rawOrders = loadJson(ORDERS_FILE);
   const rfqs = loadJson(RFQS_FILE);
   const quotes = loadJson(QUOTES_FILE);
   const deliveries = loadJson(DELIVERIES_FILE);
+  const profiles = loadJson(PROFILES_FILE);
 
-  const orders = rawOrders.map((o) => enrichOrder(o, rfqs, quotes, deliveries));
+  const orders = rawOrders.map((o) => enrichOrder(o, rfqs, quotes, deliveries, profiles));
 
   if (isSync) {
     const statuses: Record<string, { id: string; status: string; rawStatus: string; courier_status: string; deal_status: string; updated_at: string }> = {};
@@ -167,8 +266,15 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    let syncOrders = orders;
+    if (vendorId && vendorId !== "vendor-demo-id" && vendorId !== "current-vendor-id") {
+      syncOrders = orders.filter((o) => o.vendor_id === vendorId || o.deals?.some((d: any) => d.vendor_id === vendorId));
+    } else if (clientId && clientId !== "client-demo-id") {
+      syncOrders = orders.filter((o) => o.client_id === clientId || o.deals?.some((d: any) => d.client_id === clientId));
+    }
+
     return NextResponse.json(
-      { success: true, statuses, orders },
+      { success: true, statuses, orders: syncOrders },
       {
         headers: {
           "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
@@ -203,8 +309,7 @@ export async function GET(req: NextRequest) {
   let filteredList = orders;
   if (vendorId && vendorId !== "vendor-demo-id") {
     filteredList = filteredList.filter((o) => o.vendor_id === vendorId || o.deals?.some((d: any) => d.vendor_id === vendorId));
-  }
-  if (clientId && clientId !== "client-demo-id") {
+  } else if (clientId && clientId !== "client-demo-id") {
     filteredList = filteredList.filter((o) => o.client_id === clientId || o.deals?.some((d: any) => d.client_id === clientId));
   }
 
@@ -221,14 +326,147 @@ export async function POST(req: NextRequest) {
     const orders = loadJson(ORDERS_FILE);
     const existingIdx = orders.findIndex((o) => o.id === orderId);
 
+    const rfqs = loadJson(RFQS_FILE);
+    const matchedRfq = rfqs.find((r: any) => r.id === rfq_id || (rfq_id && r.id.includes(rfq_id)));
+    let rfqExtra: any = {};
+    if (matchedRfq?.parts_description) {
+      try {
+        const p = typeof matchedRfq.parts_description === "string" ? JSON.parse(matchedRfq.parts_description) : matchedRfq.parts_description;
+        if (Array.isArray(p) && p.length > 0) rfqExtra = p[0] || {};
+      } catch {}
+    }
+
+    const locText = String(body.delivery_location || matchedRfq?.delivery_location || rfqExtra.deliveryLocation || "");
+    const hasPickupPhrase =
+      locText === "استلام من فرع المورد" ||
+      locText === "استلام يدوي" ||
+      locText.startsWith("استلام من فرع المورد");
+
+    const fulfillmentMethod =
+      body.fulfillment_method ||
+      body.fulfillment_type ||
+      matchedRfq?.fulfillment_method ||
+      rfqExtra.fulfillmentMethod;
+
+    const deliveryMethod =
+      body.delivery_method ||
+      body.delivery_type ||
+      body.shipping_method ||
+      matchedRfq?.delivery_method ||
+      rfqExtra.deliveryMethod;
+
+    // Strict Delivery Resolution: Delivery takes absolute precedence
+    const isExplicitDelivery =
+      fulfillmentMethod === "DELIVERY" ||
+      deliveryMethod === "delivery" ||
+      deliveryMethod === "shipping" ||
+      body.is_pickup === false ||
+      matchedRfq?.is_pickup === false ||
+      (body.delivery_fee != null && Number(body.delivery_fee) > 0);
+
+    let isPickup = false;
+    if (isExplicitDelivery) {
+      isPickup = false;
+    } else if (
+      body.is_pickup === true ||
+      matchedRfq?.is_pickup === true ||
+      fulfillmentMethod === "BRANCH_PICKUP" ||
+      fulfillmentMethod === "SELF_PICKUP" ||
+      deliveryMethod === "pickup" ||
+      hasPickupPhrase
+    ) {
+      isPickup = true;
+    }
+
+    const settings = loadSettings();
+    const clientFeeRate = Number(
+      body.client_platform_fee_percent ??
+      settings.client_platform_fee_percent ??
+      body.platform_commission_percent ??
+      settings.platform_commission_percent ??
+      5
+    );
+    const vendorFeeRate = Number(
+      body.vendor_platform_fee_percent ??
+      settings.vendor_platform_fee_percent ??
+      6
+    );
+    const vatRate = Number(body.vat_percent ?? settings.vat_percent ?? 15);
+    const totalPrice = Number(total_price) || 0;
+    const deliveryFee = isPickup
+      ? 0
+      : (body.delivery_fee != null && Number(body.delivery_fee) > 0
+          ? Number(body.delivery_fee)
+          : (matchedRfq?.delivery_fee && Number(matchedRfq.delivery_fee) > 0
+              ? Number(matchedRfq.delivery_fee)
+              : 25));
+
+    let subtotal = Number(body.subtotal || body.parts_subtotal || 0);
+    let clientPlatformFee = Number(body.client_platform_fee ?? body.platform_commission ?? 0);
+    let vendorPlatformFee = Number(body.vendor_platform_fee ?? 0);
+    let taxAmount = Number(body.tax_amount || 0);
+
+    if (!subtotal || !clientPlatformFee || !taxAmount) {
+      const netBase = Math.max(0, totalPrice - deliveryFee);
+      const factor = 1 + (clientFeeRate / 100) + (vatRate / 100);
+      subtotal = Number((netBase / factor).toFixed(2));
+      clientPlatformFee = Number(((subtotal * clientFeeRate) / 100).toFixed(2));
+      vendorPlatformFee = Number(((subtotal * vendorFeeRate) / 100).toFixed(2));
+      taxAmount = Number(((subtotal * vatRate) / 100).toFixed(2));
+    } else if (!vendorPlatformFee) {
+      vendorPlatformFee = Number(((subtotal * vendorFeeRate) / 100).toFixed(2));
+    }
+
+    // ── STRICT WALLET BALANCE VERIFICATION ──
+    const effectiveClientId = client_id || body.client_id || "client-demo-id";
+    const paymentMethod = body.payment_method || body.payment_source || "wallet";
+    const isWalletPayment = paymentMethod === "wallet";
+
+    if (isWalletPayment && totalPrice > 0) {
+      const clientBalance = await getAuthoritativeUserBalance(effectiveClientId);
+      if (clientBalance < totalPrice) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: `رصيد المحفظة غير كافٍ لإتمام الطلب. الرصيد المتاح: ${clientBalance.toLocaleString("ar-SA", { minimumFractionDigits: 2 })} ر.س، والمطلوب: ${totalPrice.toLocaleString("ar-SA", { minimumFractionDigits: 2 })} ر.س. يرجى شحن المحفظة للمتابعة.`,
+            balance: clientBalance,
+            required: totalPrice,
+          },
+          { status: 400 }
+        );
+      }
+    }
+
     const newOrder = {
+      ...body,
       id: orderId,
       rfq_id: rfq_id || null,
       quote_id: quote_id || null,
-      client_id: client_id || "client-demo-id",
+      client_id: effectiveClientId,
       vendor_id: vendor_id || "vendor-demo-id",
       status: status || "confirmed",
-      total_price: Number(total_price) || 0,
+      courier_id: body.courier_id || body.courierId || body.driver_id || null,
+      recipient_phone: body.recipient_phone || body.recipientPhone || body.client_phone || null,
+      delivery_days: body.delivery_days || null,
+      payment_method: paymentMethod,
+      payment_source: paymentMethod,
+      total_price: totalPrice,
+      total_amount: totalPrice,
+      subtotal: subtotal,
+      parts_subtotal: subtotal,
+      platform_commission: clientPlatformFee,
+      platform_commission_percent: clientFeeRate,
+      client_platform_fee: clientPlatformFee,
+      client_platform_fee_percent: clientFeeRate,
+      vendor_platform_fee: vendorPlatformFee,
+      vendor_platform_fee_percent: vendorFeeRate,
+      tax_amount: taxAmount,
+      vat_percent: vatRate,
+      delivery_fee: deliveryFee,
+      delivery_type: isPickup ? "pickup" : (body.delivery_type || "delivery"),
+      delivery_method: isPickup ? "pickup" : (body.delivery_method || "delivery"),
+      fulfillment_method: isPickup ? "SELF_PICKUP" : (body.fulfillment_method || "DELIVERY"),
+      is_pickup: isPickup,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
       items: items || [],
@@ -238,6 +476,7 @@ export async function POST(req: NextRequest) {
           order_id: orderId,
           status: "preparing",
           current_version: 1,
+          delivery_method: isPickup ? "pickup" : "delivery",
           created_at: new Date().toISOString(),
         }
       ]
@@ -250,6 +489,96 @@ export async function POST(req: NextRequest) {
     }
     saveJson(ORDERS_FILE, orders);
     (globalThis as any).__SHARED_SERVER_ORDERS__ = orders;
+
+    // Synchronize to invoices_db.json immediately
+    try {
+      const invoices = loadJson(INVOICES_FILE);
+      const cleanNum = String(orderId).replace(/\D+/g, "");
+      const invIdx = invoices.findIndex((i: any) => i.order_id === orderId || i.id === `INV-${cleanNum}` || i.order_id === `ORD-${cleanNum}`);
+      const invRecord = {
+        id: `INV-${cleanNum || Date.now().toString().slice(-4)}`,
+        invoice_number: normalizeInvoiceNumber(newOrder.invoice_number, orderId),
+        order_id: orderId,
+        status: "paid",
+        type: "tax_invoice",
+        total_amount: totalPrice,
+        subtotal: subtotal,
+        parts_subtotal: subtotal,
+        platform_commission: clientPlatformFee,
+        platform_commission_percent: clientFeeRate,
+        client_platform_fee: clientPlatformFee,
+        client_platform_fee_percent: clientFeeRate,
+        vendor_platform_fee: vendorPlatformFee,
+        vendor_platform_fee_percent: vendorFeeRate,
+        tax_amount: taxAmount,
+        vat_percent: vatRate,
+        delivery_fee: deliveryFee,
+        delivery_method: newOrder.delivery_method,
+        fulfillment_method: newOrder.fulfillment_method,
+        is_pickup: newOrder.is_pickup,
+        issued_at: newOrder.created_at,
+        created_at: newOrder.created_at,
+        paid_at: newOrder.created_at,
+        client_id: newOrder.client_id,
+        vendor_id: newOrder.vendor_id,
+        items: items || [],
+      };
+      if (invIdx >= 0) {
+        invoices[invIdx] = { ...invoices[invIdx], ...invRecord };
+      } else {
+        invoices.unshift(invRecord);
+      }
+      saveJson(INVOICES_FILE, invoices);
+      (globalThis as any).__SHARED_SERVER_INVOICES__ = invoices;
+    } catch (invErr) {
+      console.warn("Failed to sync invoice for order:", invErr);
+    }
+
+    // Dual Persistence: Also persist order & deal to Supabase SQL tables
+    try {
+      const supabase = await createClient();
+      await Promise.allSettled([
+        supabase.from("orders").upsert({
+          id: orderId,
+          rfq_id: rfq_id || null,
+          quote_id: quote_id || null,
+          client_id: newOrder.client_id,
+          vendor_id: newOrder.vendor_id,
+          status: newOrder.status,
+          total_price: totalPrice,
+          subtotal: subtotal,
+          parts_subtotal: subtotal,
+          platform_commission: clientPlatformFee,
+          platform_commission_percent: clientFeeRate,
+          client_platform_fee: clientPlatformFee,
+          client_platform_fee_percent: clientFeeRate,
+          vendor_platform_fee: vendorPlatformFee,
+          vendor_platform_fee_percent: vendorFeeRate,
+          tax_amount: taxAmount,
+          vat_percent: vatRate,
+          delivery_fee: deliveryFee,
+          delivery_method: newOrder.delivery_method,
+          fulfillment_method: newOrder.fulfillment_method,
+          is_pickup: newOrder.is_pickup,
+          created_at: newOrder.created_at,
+          updated_at: newOrder.updated_at,
+        }),
+        supabase.from("deals").upsert({
+          id: deal_id || `DEAL-${orderId.replace("ORD-", "")}`,
+          order_id: orderId,
+          client_id: newOrder.client_id,
+          vendor_id: newOrder.vendor_id,
+          status: "preparing",
+          current_version: 1,
+          created_at: newOrder.created_at,
+          updated_at: newOrder.updated_at,
+        }),
+        rfq_id ? supabase.from("rfqs").update({ status: "accepted", accepted_quote_id: quote_id }).eq("id", rfq_id) : Promise.resolve(),
+        quote_id ? supabase.from("quotes").update({ status: "accepted" }).eq("id", quote_id) : Promise.resolve(),
+      ]);
+    } catch (sbErr) {
+      console.warn("Dual persistence to Supabase warning:", sbErr);
+    }
 
     // Update RFQ status if rfq_id provided
     if (rfq_id) {
@@ -274,23 +603,10 @@ export async function POST(req: NextRequest) {
     }
 
     // Immediately create delivery record for courier portal (only for delivery fulfillment)
-    const isPickup =
-      newOrder.fulfillment_method === "BRANCH_PICKUP" ||
-      newOrder.fulfillment_method === "pickup" ||
-      newOrder.fulfillment_method === "SELF_PICKUP" ||
-      newOrder.fulfillment_type === "BRANCH_PICKUP" ||
-      newOrder.shipping_method === "pickup" ||
-      newOrder.delivery_method === "pickup" ||
-      newOrder.delivery_type === "pickup" ||
-      newOrder.is_pickup === true ||
-      newOrder.pickup_branch ||
-      newOrder.pickup_location ||
-      String(newOrder.delivery_location || "").includes("فرع") ||
-      String(newOrder.delivery_location || "").includes("استلام");
-
     if (!isPickup) {
       try {
-        CourierService.createDeliveryForOrder(newOrder);
+        const orderCourierId = newOrder.courier_id || (newOrder as any).courierId || (newOrder as any).driver_id;
+        CourierService.createDeliveryForOrder(newOrder, orderCourierId);
       } catch (delErr) {
         console.warn("Failed to create courier delivery record:", delErr);
       }
@@ -305,6 +621,16 @@ export async function POST(req: NextRequest) {
       await triggerQuoteAcceptedEvent(matchedQuote, matchedRfq, orderId);
     } catch (notifErr) {
       console.warn("Failed to dispatch quote accepted notification:", notifErr);
+    }
+
+    // Execute automated wallet distribution
+    try {
+      await distributeOrderFundsAutomatically({
+        orderId,
+        paymentSource: isWalletPayment ? "wallet" : "external",
+      });
+    } catch (distErr) {
+      console.warn("Automated wallet distribution warning on order creation:", distErr);
     }
 
     return NextResponse.json({ success: true, order: newOrder });
@@ -371,6 +697,18 @@ export async function PATCH(req: NextRequest) {
         await triggerOrderStatusUpdatedEvent(orders[idx], status);
       } catch (notifErr) {
         console.warn("Push notification dispatch warning:", notifErr);
+      }
+
+      // Automated wallet distribution upon status completion or payment
+      if (status === "completed" || status === "paid" || status === "delivered") {
+        try {
+          await distributeOrderFundsAutomatically({
+            orderId: orders[idx].id,
+            paymentSource: (orders[idx].payment_method === "wallet" || orders[idx].payment_source === "wallet") ? "wallet" : "external",
+          });
+        } catch (distErr) {
+          console.warn("Automated wallet distribution warning on status update:", distErr);
+        }
       }
 
       return NextResponse.json({ success: true, order: orders[idx] });

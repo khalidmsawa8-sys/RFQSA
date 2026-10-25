@@ -782,18 +782,49 @@ export function ClientOrdersClient({
     const nowMs = Date.now();
     const durationMs = (durationMinutes || 20) * 60 * 1000;
 
-    const rfqRows: UnifiedTableRow[] = localRfqs.map((rfq) => {
+    // Deduplicate orders first
+    const seenOrderKeys = new Set<string>();
+    const uniqueOrders = orders.filter((order) => {
+      const cleanId = order.id.replace(/\D+/g, "") || order.id;
+      if (seenOrderKeys.has(cleanId)) return false;
+      seenOrderKeys.add(cleanId);
+      return true;
+    });
+
+    const rfqRows: UnifiedTableRow[] = localRfqs
+      .filter((rfq) => {
+        // If an RFQ has already graduated/converted to an active or completed order, exclude it so it does not duplicate in the table
+        const cleanRfqNum = rfq.id.replace(/\D+/g, "");
+        const hasLinkedOrder = uniqueOrders.some((o) => {
+          const cleanOrdNum = o.id.replace(/\D+/g, "");
+          return (
+            o.rfq_id === rfq.id ||
+            (cleanRfqNum && cleanOrdNum && cleanRfqNum === cleanOrdNum) ||
+            (o.deals && o.deals.some((d: any) => d.id === rfq.id || d.order_id === rfq.id))
+          );
+        });
+        return !hasLinkedOrder && rfq.status !== "accepted";
+      })
+      .map((rfq) => {
       const partsSummary = getPartsSummary(rfq.parts_description);
       const shortId = rfq.id.slice(0, 8).toUpperCase();
       const displayId = `#REQ-${shortId}`;
-      const quotesCount = rfq.quotes?.[0]?.count ?? rfq.quotes?.length ?? 0;
-      const lowestQuote = rfq.quotes?.[0]?.total_price || null;
+      const quotesCount = Array.isArray(rfq.quotes) ? rfq.quotes.length : ((rfq.quotes as any)?.[0]?.count ?? 0);
+      let lowestQuote: number | null = null;
+      if (Array.isArray(rfq.quotes) && rfq.quotes.length > 0) {
+        const validPrices = rfq.quotes
+          .map((q: any) => Number(q.total_price))
+          .filter((p: number) => !isNaN(p) && p > 0);
+        if (validPrices.length > 0) {
+          lowestQuote = Math.min(...validPrices);
+        }
+      }
 
       let rfqCreatedAt = rfq.created_at;
       let rfqExpiresAt = rfq.expires_at;
       let rfqRawStatus = rfq.status || "open";
 
-      const hasLinkedOrder = orders.some(
+      const hasLinkedOrder = uniqueOrders.some(
         (o) => o.rfq_id === rfq.id || o.id === `ORD-${rfq.id.replace(/\D+/g, "")}` || (o.deals && o.deals.some((d: any) => d.id === rfq.id))
       );
 
@@ -827,19 +858,22 @@ export function ClientOrdersClient({
       const createdAtMs = new Date(rfqCreatedAt || nowMs).getTime();
       const targetExpiryMs = rfqExpiresAt ? new Date(rfqExpiresAt).getTime() : (createdAtMs + durationMs);
       const isTimeExpired = nowMs >= targetExpiryMs || (nowMs - createdAtMs >= durationMs + 1000);
-      const isExpired = rfqRawStatus === "cancelled" || rfqRawStatus === "expired" || rfqRawStatus === "closed" || (rfqRawStatus === "open" && isTimeExpired);
+      const isExpired = rfqRawStatus === "cancelled" || rfqRawStatus === "expired" || rfqRawStatus === "closed" || ((rfqRawStatus === "open" || rfqRawStatus === "quoted") && isTimeExpired);
       const effectiveStatus = rfqRawStatus === "accepted" ? "accepted" : (isExpired ? "cancelled" : rfqRawStatus);
 
-      const isPickupRfq = Boolean(
+      const isExplicitDeliveryRfq =
+        (rfq as any).fulfillment_method === "DELIVERY" ||
+        (rfq as any).delivery_method === "delivery" ||
+        (rfq as any).delivery_type === "delivery" ||
+        (rfq as any).is_pickup === false;
+
+      const isPickupRfq = !isExplicitDeliveryRfq && Boolean(
         (rfq as any).fulfillment_method === "BRANCH_PICKUP" ||
-        (rfq as any).fulfillment_method === "pickup" ||
         (rfq as any).fulfillment_method === "SELF_PICKUP" ||
         (rfq as any).delivery_method === "pickup" ||
         (rfq as any).delivery_type === "pickup" ||
         (rfq as any).is_pickup === true ||
-        (rfq as any).pickup_branch ||
-        String(rfq.delivery_location || partsSummary.deliveryLocation || "").includes("فرع") ||
-        String(rfq.delivery_location || partsSummary.deliveryLocation || "").includes("استلام")
+        (rfq as any).pickup_branch
       );
 
       return {
@@ -880,14 +914,15 @@ export function ClientOrdersClient({
       };
     });
 
-    const orderRows: UnifiedTableRow[] = orders.map((order) => {
+    const orderRows: UnifiedTableRow[] = uniqueOrders.map((order) => {
       const cleanId = order.id.replace(/^ORD-/, "").slice(0, 8).toUpperCase();
       const displayId = `#ORD-${cleanId}`;
       const dealId = order.deals?.[0]?.id || order.id;
 
       // 1. Resolve RFQ object (handling array or object from Supabase)
       const rfqObj = Array.isArray(order.rfqs) ? (order.rfqs[0] || {}) : (order.rfqs || {});
-      const matchedRfq = localRfqs.find((r) => r.id === order.rfq_id || r.id === (rfqObj as any)?.id);
+      const cleanOrdNum = order.id.replace(/\D+/g, "");
+      const matchedRfq = localRfqs.find((r) => r.id === order.rfq_id || r.id === (rfqObj as any)?.id || (cleanOrdNum && r.id.replace(/\D+/g, "") === cleanOrdNum));
       const mergedRfq: any = { ...(matchedRfq || {}), ...(rfqObj || {}) };
 
       // 2. Resolve parts description from order, linked rfqs, or localRfqs
@@ -929,30 +964,30 @@ export function ClientOrdersClient({
         partsSummary.deliveryLocation ||
         "الرياض";
 
-      const isPickupOrder = Boolean(
+      const isExplicitDeliveryOrder =
+        (order as any).fulfillment_method === "DELIVERY" ||
+        (order as any).delivery_method === "delivery" ||
+        (order as any).shipping_method === "delivery" ||
+        (order as any).is_pickup === false ||
+        mergedRfq.fulfillment_method === "DELIVERY" ||
+        mergedRfq.delivery_method === "delivery" ||
+        mergedRfq.is_pickup === false ||
+        Number((order as any).delivery_fee) > 0;
+
+      const isPickupOrder = !isExplicitDeliveryOrder && Boolean(
         (order as any).fulfillment_method === "BRANCH_PICKUP" ||
-        (order as any).fulfillment_method === "pickup" ||
         (order as any).fulfillment_method === "SELF_PICKUP" ||
-        (order as any).fulfillment_type === "BRANCH_PICKUP" ||
         (order as any).shipping_method === "pickup" ||
         (order as any).delivery_method === "pickup" ||
         (order as any).delivery_type === "pickup" ||
         (order as any).is_pickup === true ||
         (order as any).pickup_branch ||
-        (order as any).pickup_location ||
         mergedRfq.fulfillment_method === "BRANCH_PICKUP" ||
         mergedRfq.fulfillment_method === "SELF_PICKUP" ||
-        mergedRfq.fulfillment_method === "pickup" ||
-        mergedRfq.fulfillment_type === "BRANCH_PICKUP" ||
         mergedRfq.delivery_method === "pickup" ||
         mergedRfq.delivery_type === "pickup" ||
         mergedRfq.is_pickup === true ||
-        (order.deals?.[0] as any)?.delivery_method === "pickup" ||
-        String(deliveryLoc || "").includes("فرع") ||
-        String(deliveryLoc || "").includes("استلام") ||
-        String(deliveryLoc || "").includes("branch") ||
-        String(deliveryLoc || "").includes("pickup") ||
-        (Number((order as any).delivery_fee) === 0 && (order as any).delivery_fee !== null && (order as any).delivery_fee !== undefined && (String(deliveryLoc).includes("فرع") || String(deliveryLoc).includes("استلام")))
+        (order.deals?.[0] as any)?.delivery_method === "pickup"
       );
 
       return {
@@ -1026,7 +1061,7 @@ export function ClientOrdersClient({
   );
 
   const rfqCount = useMemo(
-    () => allRows.filter((r) => r.itemType === "rfq" && r.status === "open").length,
+    () => allRows.filter((r) => r.itemType === "rfq" && (r.status === "open" || r.status === "quoted")).length,
     [allRows]
   );
 
@@ -1043,7 +1078,7 @@ export function ClientOrdersClient({
   // Filter Rows
   const filteredRows = useMemo(() => {
     return allRows.filter((row) => {
-      if (mode === "rfq" && (row.itemType !== "rfq" || row.status !== "open")) return false;
+      if (mode === "rfq" && (row.itemType !== "rfq" || (row.status !== "open" && row.status !== "quoted"))) return false;
       if (mode === "active") {
         const isActiveOrder = row.itemType === "order" && !COMPLETED_STATUSES.includes(row.status) && row.status !== "cancelled";
         if (!isActiveOrder) return false;
@@ -1194,7 +1229,7 @@ export function ClientOrdersClient({
                 </div>
                 <div className="flex items-center gap-1 text-[9px] font-bold text-amber-700/90">
                   <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
-                  <span>في انتظار استقبال عروض الأسعار</span>
+                  <span>{rfqCount > 0 ? "طلبات نشطة تستقبل وتستعرض العروض" : "في انتظار استقبال عروض الأسعار"}</span>
                 </div>
               </div>
               <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-amber-500 to-orange-500 text-white shadow-md shadow-amber-500/20 flex items-center justify-center shrink-0">
@@ -2095,7 +2130,6 @@ export function ClientOrdersClient({
                                   <span className="inline-flex items-center gap-0.5 bg-blue-50 border border-blue-200/80 px-2 py-0.5 rounded-lg text-[10px] text-blue-800 font-medium">
                                     <User className="w-3 h-3 text-blue-600 shrink-0" />
                                     <span>{row.recipientName}</span>
-                                    {row.recipientPhone && <span dir="ltr" className="text-[9px] font-mono text-blue-600">({row.recipientPhone})</span>}
                                   </span>
                                 )}
 
@@ -2419,7 +2453,6 @@ export function ClientOrdersClient({
                                       <span className="inline-flex items-center gap-0.5 bg-blue-50 border border-blue-200/80 px-1.5 py-0.2 rounded text-blue-800 font-medium">
                                         <User className="w-2.5 h-2.5 text-blue-600 shrink-0" />
                                         <span>{row.recipientName}</span>
-                                        {row.recipientPhone ? <span dir="ltr" className="text-[7.5px] font-mono text-blue-600">({row.recipientPhone})</span> : null}
                                       </span>
                                     ) : null}
 
@@ -2512,7 +2545,7 @@ export function ClientOrdersClient({
                                       </DropdownMenuItem>
 
                                       {/* 3. تعديل الطلب */}
-                                      {row.itemType === "rfq" && row.status === "open" ? (
+                                      {row.itemType === "rfq" && (row.status === "open" || row.status === "quoted") ? (
                                         <DropdownMenuItem
                                           onClick={() => router.push(`/client/new-rfq?edit=${row.rawId}`)}
                                           className="flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs font-bold text-slate-700 hover:bg-slate-50 cursor-pointer"

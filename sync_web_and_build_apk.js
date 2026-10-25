@@ -91,6 +91,14 @@ conn.on('ready', () => {
       { local: 'app/api/v1/orders/[id]/status/route.ts', remote: '/var/www/rfq/app/api/v1/orders/[id]/status/route.ts' },
       { local: 'app/api/v1/orders/[id]/route.ts', remote: '/var/www/rfq/app/api/v1/orders/[id]/route.ts' },
       { local: 'app/api/v1/orders/route.ts', remote: '/var/www/rfq/app/api/v1/orders/route.ts' },
+      { local: 'app/api/v1/invoices/route.ts', remote: '/var/www/rfq/app/api/v1/invoices/route.ts' },
+      { local: 'app/api/v1/organization/route.ts', remote: '/var/www/rfq/app/api/v1/organization/route.ts' },
+      { local: 'app/api/v1/team/members/route.ts', remote: '/var/www/rfq/app/api/v1/team/members/route.ts' },
+      { local: 'app/api/v1/team/members/[id]/route.ts', remote: '/var/www/rfq/app/api/v1/team/members/[id]/route.ts' },
+      { local: 'lib/wallet-ledger.ts', remote: '/var/www/rfq/lib/wallet-ledger.ts' },
+      { local: 'lib/rbac/rbac-guard.server.ts', remote: '/var/www/rfq/lib/rbac/rbac-guard.server.ts' },
+      { local: 'data/organization_members_db.json', remote: '/var/www/rfq/data/organization_members_db.json' },
+      { local: 'app/api/v1/client/vehicles/route.ts', remote: '/var/www/rfq/app/api/v1/client/vehicles/route.ts' },
       { local: 'app/api/v1/client/orders/[id]/confirm-receipt/route.ts', remote: '/var/www/rfq/app/api/v1/client/orders/[id]/confirm-receipt/route.ts' },
       { local: 'app/api/v1/vendor/orders/[id]/status/route.ts', remote: '/var/www/rfq/app/api/v1/vendor/orders/[id]/status/route.ts' },
       { local: 'app/api/rfqs/route.ts', remote: '/var/www/rfq/app/api/rfqs/route.ts' },
@@ -117,6 +125,10 @@ conn.on('ready', () => {
       { local: 'lib/system-settings.ts', remote: '/var/www/rfq/lib/system-settings.ts' },
       { local: 'components/quote-details-inspection-modal.tsx', remote: '/var/www/rfq/components/quote-details-inspection-modal.tsx' },
       { local: 'lib/courier-service.ts', remote: '/var/www/rfq/lib/courier-service.ts' },
+      { local: 'app/courier/page.tsx', remote: '/var/www/rfq/app/courier/page.tsx' },
+      { local: 'app/courier/orders/[id]/page.tsx', remote: '/var/www/rfq/app/courier/orders/[id]/page.tsx' },
+      { local: 'app/api/v1/courier/deliveries/route.ts', remote: '/var/www/rfq/app/api/v1/courier/deliveries/route.ts' },
+      { local: 'app/api/v1/courier/profile/route.ts', remote: '/var/www/rfq/app/api/v1/courier/profile/route.ts' },
       { local: 'app/api/v1/admin/support/[id]/route.ts', remote: '/var/www/rfq/app/api/v1/admin/support/[id]/route.ts' },
       { local: 'app/vendor/orders/orders-client.tsx', remote: '/var/www/rfq/app/vendor/orders/orders-client.tsx' },
       { local: 'app/deal/[orderId]/deal-page-client.tsx', remote: '/var/www/rfq/app/deal/[orderId]/deal-page-client.tsx' },
@@ -137,10 +149,25 @@ conn.on('ready', () => {
       { local: 'app/admin/(dashboard)/audit/page.tsx', remote: '/var/www/rfq/app/admin/(dashboard)/audit/page.tsx' },
       { local: 'app/profile/page.tsx', remote: '/var/www/rfq/app/profile/page.tsx' },
       { local: 'lib/bounded-contexts/fleet/fleet.import.ts', remote: '/var/www/rfq/lib/bounded-contexts/fleet/fleet.import.ts' },
-      { local: 'lib/bounded-contexts/fleet/fleet.repository.ts', remote: '/var/www/rfq/lib/bounded-contexts/fleet/fleet.repository.ts' },
       { local: 'components/fleet/vehicle-import-modal.tsx', remote: '/var/www/rfq/components/fleet/vehicle-import-modal.tsx' },
       { local: 'app/admin/(dashboard)/notifications/page.tsx', remote: '/var/www/rfq/app/admin/(dashboard)/notifications/page.tsx' },
       { local: 'app/api/v1/admin/notifications/route.ts', remote: '/var/www/rfq/app/api/v1/admin/notifications/route.ts' },
+      { local: 'lib/security-crypto.ts', remote: '/var/www/rfq/lib/security-crypto.ts' },
+      { local: 'lib/email-service.ts', remote: '/var/www/rfq/lib/email-service.ts' },
+      { local: 'app/api/v1/admin/settings/route.ts', remote: '/var/www/rfq/app/api/v1/admin/settings/route.ts' },
+      { local: 'app/api/v1/admin/settings/test-email/route.ts', remote: '/var/www/rfq/app/api/v1/admin/settings/test-email/route.ts' },
+      { local: 'app/api/v1/admin/system-metrics/route.ts', remote: '/var/www/rfq/app/api/v1/admin/system-metrics/route.ts' },
+      { local: 'app/admin/(dashboard)/settings/page.tsx', remote: '/var/www/rfq/app/admin/(dashboard)/settings/page.tsx' },
+      { local: 'app/vendor/quote/[rfqId]/page.tsx', remote: '/var/www/rfq/app/vendor/quote/[rfqId]/page.tsx' },
+      { local: 'app/api/upload-part-image/route.ts', remote: '/var/www/rfq/app/api/upload-part-image/route.ts' },
+      { local: 'app/client/orders/page.tsx', remote: '/var/www/rfq/app/client/orders/page.tsx' },
+      { local: 'app/client/invoices/page.tsx', remote: '/var/www/rfq/app/client/invoices/page.tsx' },
+      { local: 'app/vendor/invoices/page.tsx', remote: '/var/www/rfq/app/vendor/invoices/page.tsx' },
+      { local: 'app/uploads/[...path]/route.ts', remote: '/var/www/rfq/app/uploads/[...path]/route.ts' },
+      { local: 'scripts/repair_invoices_and_orders.cjs', remote: '/var/www/rfq/scripts/repair_invoices_and_orders.cjs' },
+      { local: 'package.json', remote: '/var/www/rfq/package.json' },
+      { local: 'package-lock.json', remote: '/var/www/rfq/package-lock.json' },
+      { local: 'data/system_settings.json', remote: '/var/www/rfq/data/system_settings.json' },
     ];
 
     for (const file of filesToSync) {
@@ -164,11 +191,23 @@ conn.on('ready', () => {
       const buildScript = `
 set -e
 
-# Rebuild Web Next.js to compile updated API routes
+# Repair data files on VPS
 cd /var/www/rfq
+echo "🔧 Repairing orders and invoices data on VPS..."
+node /var/www/rfq/scripts/repair_invoices_and_orders.cjs
+
+# Rebuild Web Next.js to compile updated API routes
+echo "📦 Installing packages if needed..."
+npm install --prefer-offline || npm install
 echo "🏗️ Building Next.js Web App on VPS..."
 npm run build
 pm2 restart rfq || true
+
+# Stop any lingering background daemons safely by executable name
+echo "🛑 Stopping any existing Gradle (Java) or Dart daemons..."
+killall -9 java 2>/dev/null || true
+killall -9 dart 2>/dev/null || true
+sleep 2
 
 # Extract Mobile App
 echo "📦 Extracting mobile app archive..."
@@ -190,8 +229,7 @@ flutter config --android-sdk $ANDROID_HOME
 
 cd /root/mobile_app_build/mobile_app
 
-echo "🧹 Running flutter clean & pub get..."
-flutter clean || true
+echo "📦 Running flutter pub get..."
 flutter pub get
 
 echo "⚙️ Running flutter build apk --release..."
@@ -200,7 +238,12 @@ flutter build apk --release --no-tree-shake-icons --android-skip-build-dependenc
 # Deploy to Web root
 echo "🚀 Deploying APK to /var/www/rfq/public/rfq.apk..."
 mkdir -p /var/www/rfq/public
-cp build/app/outputs/flutter-apk/app-release.apk /var/www/rfq/public/rfq.apk
+APK_SRC=$(find /root/mobile_app_build/mobile_app/build/app/outputs/flutter-apk /root/mobile_app_build/mobile_app/build/app/outputs/apk/release -name "*release*.apk" 2>/dev/null | head -n 1)
+if [ -z "$APK_SRC" ]; then
+  APK_SRC=$(find /root/mobile_app_build/mobile_app/build -name "*.apk" | head -n 1)
+fi
+echo "Selected APK: $APK_SRC"
+cp "$APK_SRC" /var/www/rfq/public/rfq.apk
 chmod 644 /var/www/rfq/public/rfq.apk
 
 echo "🔍 Verifying Deployed APK..."

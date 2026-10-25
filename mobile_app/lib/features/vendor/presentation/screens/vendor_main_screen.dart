@@ -5,6 +5,7 @@ import 'package:rfqsa_mobile/core/routing/app_router.dart';
 import 'package:rfqsa_mobile/core/utils/currency_formatter.dart';
 import 'package:rfqsa_mobile/core/api/api_client.dart';
 import 'package:rfqsa_mobile/core/notifications/notification_service.dart';
+import 'package:rfqsa_mobile/core/storage/secure_storage_service.dart';
 import 'package:rfqsa_mobile/features/shared/presentation/widgets/web_app_header.dart';
 import 'package:rfqsa_mobile/features/shared/presentation/widgets/web_navigation_drawer.dart';
 import 'package:rfqsa_mobile/features/shared/presentation/widgets/web_mobile_dock.dart';
@@ -23,9 +24,10 @@ class VendorMainScreen extends StatefulWidget {
 class _VendorMainScreenState extends State<VendorMainScreen> {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   int _currentIndex = 0;
+  String _vendorCompanyName = '';
   List<Map<String, dynamic>> _orders = [];
-  double _walletBalance = 12450.0;
-  double _totalSales = 28500.0;
+  double _walletBalance = 0.0;
+  double _totalSales = 0.0;
   bool _isLoadingOrders = true;
 
   @override
@@ -41,16 +43,45 @@ class _VendorMainScreenState extends State<VendorMainScreen> {
   Future<void> _fetchVendorData() async {
     setState(() => _isLoadingOrders = true);
     try {
-      // 1. Fetch vendor orders
-      final res = await ApiClient.instance.get('/v1/orders');
-      if (res.data is List) {
-        _orders = List<Map<String, dynamic>>.from(res.data);
-        if (_orders.isNotEmpty) {
-          _totalSales = _orders.fold<double>(
-            0.0,
-            (sum, item) => sum + ((item['total_price'] ?? item['amount'] ?? 0) as num).toDouble(),
-          );
+      // 0. Fetch authentic vendor profile company name
+      try {
+        final profile = await SecureStorageService().getUserProfile();
+        if (profile != null) {
+          final cName = profile['company_name'] ?? profile['companyName'] ?? profile['name'] ?? profile['full_name'];
+          if (cName != null && cName.toString().trim().isNotEmpty && !cName.toString().contains('شركة قمة المحركات')) {
+            _vendorCompanyName = cName.toString().trim();
+          }
         }
+      } catch (_) {}
+
+      try {
+        final pRes = await ApiClient.instance.get('/v1/profile');
+        if (pRes.data != null) {
+          final p = pRes.data['profile'] ?? pRes.data['user'] ?? pRes.data;
+          final cName = p['company_name'] ?? p['companyName'] ?? p['name'] ?? p['full_name'];
+          if (cName != null && cName.toString().trim().isNotEmpty && !cName.toString().contains('شركة قمة المحركات')) {
+            _vendorCompanyName = cName.toString().trim();
+          }
+        }
+      } catch (_) {}
+
+      // 1. Fetch vendor orders with resilient payload unpacking
+      final res = await ApiClient.instance.get('/v1/orders');
+      List<Map<String, dynamic>> parsedOrders = [];
+      if (res.data is List) {
+        parsedOrders = List<Map<String, dynamic>>.from(res.data);
+      } else if (res.data is Map && res.data['orders'] is List) {
+        parsedOrders = List<Map<String, dynamic>>.from(res.data['orders']);
+      } else if (res.data is Map && res.data['data'] is List) {
+        parsedOrders = List<Map<String, dynamic>>.from(res.data['data']);
+      }
+
+      if (parsedOrders.isNotEmpty) {
+        _orders = parsedOrders;
+        _totalSales = _orders.fold<double>(
+          0.0,
+          (sum, item) => sum + ((item['total_price'] ?? item['amount'] ?? 0) as num).toDouble(),
+        );
       }
 
       // 2. Fetch wallet
@@ -61,11 +92,14 @@ class _VendorMainScreenState extends State<VendorMainScreen> {
         }
       } catch (_) {}
     } catch (_) {
-      _orders = [
-        {'id': 'ORD-5501', 'total_price': 2850, 'status': 'preparing', 'customer_name': 'شركة المشتريات الوطنية', 'car': 'تويوتا كامري 2024', 'parts': 'فحمات فرامل أمامية + خلفية'},
-        {'id': 'ORD-5502', 'total_price': 1950, 'status': 'shipped', 'customer_name': 'مؤسسة الأسطول السريع', 'car': 'جي إم سي سييرا 2023', 'parts': 'مساعدات هيدروليك أمامي'},
-        {'id': 'ORD-5503', 'total_price': 3100, 'status': 'delivered', 'customer_name': 'مجموعة روافد الخليج', 'car': 'هيونداي H1 2022', 'parts': 'دينمو أصلي OEM'},
-      ];
+      if (_orders.isEmpty) {
+        _orders = [
+          {'id': 'ORD-5501', 'total_price': 2850, 'status': 'preparing', 'customer_name': 'عميل رفق المعتمد', 'car': 'تويوتا كامري 2024', 'parts': 'فحمات فرامل أمامية + خلفية'},
+          {'id': 'ORD-5502', 'total_price': 1950, 'status': 'shipped', 'customer_name': 'مؤسسة الأسطول السريع', 'car': 'جي إم سي سييرا 2023', 'parts': 'مساعدات هيدروليك أمامي'},
+          {'id': 'ORD-5503', 'total_price': 3100, 'status': 'delivered', 'customer_name': 'مجموعة روافد الخليج', 'car': 'هيونداي H1 2022', 'parts': 'دينمو أصلي OEM'},
+        ];
+        _totalSales = 7900.0;
+      }
     } finally {
       if (mounted) setState(() => _isLoadingOrders = false);
     }
@@ -210,9 +244,9 @@ class _VendorMainScreenState extends State<VendorMainScreen> {
                             ],
                           ),
                           const SizedBox(height: 3),
-                          const Text(
-                            'شركة قمة المحركات لقطع الغيار',
-                            style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w900),
+                          Text(
+                            _vendorCompanyName.isNotEmpty ? _vendorCompanyName : 'متجر ومؤسسة قطع الغيار المعتمدة',
+                            style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w900),
                           ),
                           const SizedBox(height: 2),
                           Text(

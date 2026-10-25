@@ -11,6 +11,7 @@ import 'package:rfqsa_mobile/features/client/bloc/client_rfq_bloc.dart';
 import 'package:rfqsa_mobile/features/client/models/rfq_model.dart';
 import 'package:rfqsa_mobile/features/client/models/vehicle_model.dart';
 import 'package:rfqsa_mobile/features/client/repositories/client_repository.dart';
+import 'package:rfqsa_mobile/core/notifications/notification_service.dart';
 
 // ── Models & Constants ──
 class BranchLocationItem {
@@ -201,9 +202,9 @@ class _CreateRfqScreenState extends State<CreateRfqScreen> {
   // Step 1: Location & Recipient
   bool _useBranch = true;
   String _selectedBranchId = 'br-riyadh';
-  final _customAddressController = TextEditingController(text: 'الرياض – حي العليا، طريق الملك فهد');
-  final _recipientNameController = TextEditingController(text: 'م. أحمد الغامدي (مسؤول الفرع)');
-  final _recipientPhoneController = TextEditingController(text: '0559876543');
+  final _customAddressController = TextEditingController();
+  final _recipientNameController = TextEditingController();
+  final _recipientPhoneController = TextEditingController();
   String _deliveryCity = 'الرياض';
   double? _deliveryLat = 24.7136;
   double? _deliveryLng = 46.6753;
@@ -218,10 +219,10 @@ class _CreateRfqScreenState extends State<CreateRfqScreen> {
   String _selectedMake = 'تويوتا';
   String _selectedModel = 'هايلكس';
   int _selectedYear = 2023;
-  final _plateController = TextEditingController(text: 'أ ب ج 1234');
-  final _vinController = TextEditingController(text: 'MR0AX12019D0084790');
-  String _serialNumber = 'SN-948210';
-  String _mileage = '42,000 كم';
+  final _plateController = TextEditingController();
+  final _vinController = TextEditingController();
+  String _serialNumber = '';
+  String _mileage = '';
   String _engineCapacity = '2.7 لتر';
   String _cylinders = '4 سلندر';
   String _transmission = 'أوتوماتيك';
@@ -356,9 +357,17 @@ class _CreateRfqScreenState extends State<CreateRfqScreen> {
   Future<void> _loadGarageVehicles() async {
     setState(() => _isLoadingVehicles = true);
     try {
-      final res = await ApiClient.instance.get(ApiEndpoints.clientVehicles);
-      if (res.data != null && res.data['vehicles'] is List) {
-        final list = (res.data['vehicles'] as List)
+      final res = await ApiClient.instance.get(ApiEndpoints.clientVehicles, forceRefresh: true);
+      List<dynamic>? rawList;
+      if (res.data is List) {
+        rawList = res.data as List;
+      } else if (res.data is Map && res.data['vehicles'] is List) {
+        rawList = res.data['vehicles'] as List;
+      } else if (res.data is Map && res.data['data'] is List) {
+        rawList = res.data['data'] as List;
+      }
+      if (rawList != null && rawList.isNotEmpty) {
+        final list = rawList
             .map((e) => VehicleModel.fromJson(e as Map<String, dynamic>))
             .toList();
         if (mounted) {
@@ -783,6 +792,12 @@ class _CreateRfqScreenState extends State<CreateRfqScreen> {
             deliveryLng: _deliveryLng,
             deliveryMethod: _deliveryMethod,
             rfqType: _rfqType,
+            recipientName: _recipientNameController.text.trim().isNotEmpty
+                ? _recipientNameController.text.trim()
+                : null,
+            recipientPhone: _recipientPhoneController.text.trim().isNotEmpty
+                ? _recipientPhoneController.text.trim()
+                : null,
             selectedVendorId: _selectedVendorId,
             selectedVendorName: _selectedVendorName,
             isUrgent: _isUrgent,
@@ -800,6 +815,13 @@ class _CreateRfqScreenState extends State<CreateRfqScreen> {
       listener: (context, state) {
         if (state is ClientRfqSuccessState) {
           setState(() => _isSubmitting = false);
+          NotificationService().showLocalNotification(
+            id: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+            title: 'تم إنشاء طلب التسعير بنجاح 📋',
+            body: 'تم إرسال طلب تسعير قطع غيار $_selectedMake $_selectedModel للموردين المعتمدين',
+            channelId: 'orders_channel',
+            channelName: 'الطلبات وعروض الأسعار',
+          );
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               backgroundColor: const Color(0xFF059669),

@@ -163,6 +163,7 @@ export function DealPDFExport({ order, items, rfq, vendor }: DealPDFExportProps)
       </head>
       <body>
         <div class="header">
+          <img src="https://rfqsa.tech/logo.png" alt="منصة رفق" style="height: 48px; width: auto; margin-bottom: 12px; object-fit: contain;" />
           <h1>عرض السعر</h1>
           <p>رقم الطلب: ${order.id.slice(0, 8)}</p>
           <p>${currentDate}</p>

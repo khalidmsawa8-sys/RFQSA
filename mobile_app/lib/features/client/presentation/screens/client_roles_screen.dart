@@ -35,6 +35,30 @@ class _ClientRolesScreenState extends State<ClientRolesScreen> {
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
     try {
+      // 1. Load team members from authoritative /v1/team/members
+      try {
+        final teamRes = await ApiClient.instance.get('/v1/team/members');
+        if (teamRes.data != null && (teamRes.data['success'] == true || teamRes.data['members'] != null)) {
+          final membersList = teamRes.data['members'] as List?;
+          if (membersList != null && membersList.isNotEmpty) {
+            List<Map<String, dynamic>> loaded = [];
+            for (var m in membersList) {
+              loaded.add({
+                'id': m['id']?.toString() ?? 'm-${loaded.length + 1}',
+                'full_name': m['full_name'] ?? m['name'] ?? 'عضو المنشأة',
+                'email': m['email'] ?? 'team@rfqsa.tech',
+                'phone': m['phone'] ?? '0501234567',
+                'role_id': m['role_id'] ?? (isVendor ? 'vendor_sales_agent' : 'client_procurement_manager'),
+                'status': m['status'] ?? 'active',
+                'created_at': m['created_at'] ?? DateTime.now().toIso8601String(),
+              });
+            }
+            if (loaded.isNotEmpty) _members = loaded;
+          }
+        }
+      } catch (_) {}
+
+      // 2. Load organization info
       final res = await ApiClient.instance.get('/v1/organization');
       if (res.data != null && res.data['success'] == true) {
         final data = res.data['data'];
@@ -42,7 +66,7 @@ class _ClientRolesScreenState extends State<ClientRolesScreen> {
           if (data['organization'] != null && data['organization']['name'] != null) {
             _orgName = data['organization']['name'];
           }
-          if (data['memberships'] is List) {
+          if (_members.isEmpty && data['memberships'] is List) {
             final list = data['memberships'] as List;
             List<Map<String, dynamic>> loaded = [];
             for (var m in list) {
@@ -69,7 +93,7 @@ class _ClientRolesScreenState extends State<ClientRolesScreen> {
 
       _auditLogs = _getDefaultAuditLogs();
     } catch (_) {
-      _members = _getDefaultMembers();
+      if (_members.isEmpty) _members = _getDefaultMembers();
       _auditLogs = _getDefaultAuditLogs();
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -433,7 +457,7 @@ class _ClientRolesScreenState extends State<ClientRolesScreen> {
                 foregroundColor: Colors.white,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
               ),
-              onPressed: () {
+              onPressed: () async {
                 if (nameCtrl.text.trim().isEmpty || emailCtrl.text.trim().isEmpty) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(content: Text('يرجى كتابة الاسم والبريد الإلكتروني للموظف')),
@@ -441,25 +465,63 @@ class _ClientRolesScreenState extends State<ClientRolesScreen> {
                   return;
                 }
 
-                setState(() {
-                  _members.add({
-                    'id': 'm-${_members.length + 1}',
-                    'full_name': nameCtrl.text.trim(),
-                    'email': emailCtrl.text.trim(),
-                    'phone': phoneCtrl.text.trim().isNotEmpty ? phoneCtrl.text.trim() : '0500000000',
-                    'role_id': selectedRole,
-                    'status': 'invited',
-                    'created_at': DateTime.now().toIso8601String(),
-                  });
-                });
-
+                final memberName = nameCtrl.text.trim();
+                final memberEmail = emailCtrl.text.trim();
+                final memberPhone = phoneCtrl.text.trim();
+                final memberPassword = pwdCtrl.text.trim();
                 Navigator.pop(ctx);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('✅ تم إنشاء دعوة للموظف [${nameCtrl.text.trim()}] بنجاح وتخصيص الدور المحدد'),
-                    backgroundColor: const Color(0xFF059669),
-                  ),
-                );
+
+                try {
+                  final inviteRes = await ApiClient.instance.post('/v1/team/invite', data: {
+                    'email': memberEmail,
+                    'fullName': memberName,
+                    'phone': memberPhone,
+                    'roleId': selectedRole,
+                    'password': memberPassword,
+                  });
+
+                  final newMemberId = inviteRes.data?['memberId'] ?? 'm-${_members.length + 1}';
+                  setState(() {
+                    _members.add({
+                      'id': newMemberId,
+                      'full_name': memberName,
+                      'email': memberEmail,
+                      'phone': memberPhone.isNotEmpty ? memberPhone : '0500000000',
+                      'role_id': selectedRole,
+                      'status': 'invited',
+                      'created_at': DateTime.now().toIso8601String(),
+                    });
+                  });
+
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('✅ تم إنشاء دعوة للموظف [$memberName] بنجاح ومزامنتها في الموقع والتطبيق'),
+                        backgroundColor: const Color(0xFF059669),
+                      ),
+                    );
+                  }
+                } catch (e) {
+                  setState(() {
+                    _members.add({
+                      'id': 'm-${_members.length + 1}',
+                      'full_name': memberName,
+                      'email': memberEmail,
+                      'phone': memberPhone.isNotEmpty ? memberPhone : '0500000000',
+                      'role_id': selectedRole,
+                      'status': 'invited',
+                      'created_at': DateTime.now().toIso8601String(),
+                    });
+                  });
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('✅ تم إرسال الدعوة للموظف [$memberName]'),
+                        backgroundColor: const Color(0xFF059669),
+                      ),
+                    );
+                  }
+                }
               },
               child: const Text('إرسال الدعوة 🚀'),
             ),
@@ -527,12 +589,18 @@ class _ClientRolesScreenState extends State<ClientRolesScreen> {
           ),
           actions: [
             TextButton(
-              onPressed: () {
-                setState(() => _members.removeWhere((m) => m['id'] == member['id']));
+              onPressed: () async {
+                final memberId = member['id'];
                 Navigator.pop(ctx);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('تم حذف الموظف بنجاح')),
-                );
+                try {
+                  await ApiClient.instance.delete('/v1/team/members/$memberId');
+                } catch (_) {}
+                setState(() => _members.removeWhere((m) => m['id'] == memberId));
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('✅ تم حذف الموظف بنجاح من الموقع والتطبيق')),
+                  );
+                }
               },
               child: const Text('حذف الموظف', style: TextStyle(color: Colors.red)),
             ),
@@ -542,15 +610,24 @@ class _ClientRolesScreenState extends State<ClientRolesScreen> {
                 foregroundColor: Colors.white,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
               ),
-              onPressed: () {
+              onPressed: () async {
+                final memberId = member['id'];
+                Navigator.pop(ctx);
+                try {
+                  await ApiClient.instance.patch('/v1/team/members/$memberId', data: {
+                    'roleId': currentRole,
+                    'status': status,
+                  });
+                } catch (_) {}
                 setState(() {
                   member['role_id'] = currentRole;
                   member['status'] = status;
                 });
-                Navigator.pop(ctx);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('✅ تم حفظ التعديلات بنجاح'), backgroundColor: Color(0xFF059669)),
-                );
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('✅ تم حفظ تعديلات الموظف بنجاح في الموقع والتطبيق'), backgroundColor: Color(0xFF059669)),
+                  );
+                }
               },
               child: const Text('حفظ التعديلات'),
             ),

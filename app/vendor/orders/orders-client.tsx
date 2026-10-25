@@ -135,6 +135,10 @@ export interface UnifiedVendorRow {
   status: string;
   targetUrl: string;
   isPickup?: boolean;
+  partsSubtotal?: number;
+  vendorFeePercent?: number;
+  vendorPlatformFee?: number;
+  vendorNetParts?: number;
   rawRfq?: VendorRFQ;
   rawOrder?: VendorOrder;
 }
@@ -367,6 +371,7 @@ export function VendorOrdersClient({
   orders: initialOrders,
   vendorSpecializations,
   durationMinutes = 20,
+  currentVendorId = "vendor-demo-id",
 }: {
   rfqs: VendorRFQ[];
   orders: VendorOrder[];
@@ -377,6 +382,7 @@ export function VendorOrdersClient({
     specializes_in_all_categories?: boolean;
   };
   durationMinutes?: number;
+  currentVendorId?: string;
 }) {
   const router = useRouter();
 
@@ -405,21 +411,66 @@ export function VendorOrdersClient({
     let isMounted = true;
     const fetchLiveSync = async () => {
       try {
-        const res = await fetch("/api/v1/orders?live_sync=1", {
-          cache: "no-store",
-          headers: { Pragma: "no-cache" },
-        });
-        if (res.ok) {
-          const data = await res.json();
+        const [ordersRes, rfqsRes] = await Promise.all([
+          fetch(`/api/v1/orders?live_sync=1&vendor_id=${encodeURIComponent(currentVendorId || "")}`, {
+            cache: "no-store",
+            headers: {
+              Pragma: "no-cache",
+              "x-user-id": currentVendorId || "",
+              "x-user-role": "vendor",
+            },
+          }),
+          fetch("/api/rfqs", {
+            cache: "no-store",
+            headers: {
+              Pragma: "no-cache",
+              "x-user-id": currentVendorId,
+              "x-user-role": "vendor",
+            },
+          }),
+        ]);
+
+        if (ordersRes.ok) {
+          const data = await ordersRes.json();
           if (isMounted && data.success && data.statuses) {
             setLiveStatuses(data.statuses);
+          }
+          if (isMounted && data.success && Array.isArray(data.orders)) {
+            const isDemo = currentVendorId === "vendor-demo-id" || currentVendorId === "current-vendor-id";
+            const myOrders = data.orders.filter((o: any) => {
+              if (!o) return false;
+              if (o.vendor_id === currentVendorId) return true;
+              if (isDemo && (o.vendor_id === "vendor-demo-id" || o.vendor_id === "v-supplier-1")) return true;
+              return false;
+            });
+            setOrders(myOrders);
+          }
+        }
+
+        if (rfqsRes.ok) {
+          const rfqJson = await rfqsRes.json();
+          if (isMounted && rfqJson.rfqs && Array.isArray(rfqJson.rfqs)) {
+            setRfqs((prevRfqs) => {
+              return rfqJson.rfqs
+                .filter((r: any) => r && r.status !== "accepted" && r.status !== "closed" && r.status !== "completed" && r.status !== "cancelled")
+                .map((newRfq: any) => {
+                  const prev = prevRfqs.find((p) => p.id === newRfq.id);
+                  const mergedQuotes = (newRfq.quotes && newRfq.quotes.length > 0)
+                    ? newRfq.quotes
+                    : (prev?.quotes || []);
+                  return {
+                    ...newRfq,
+                    quotes: mergedQuotes,
+                  };
+                });
+            });
           }
         }
       } catch {}
     };
 
     fetchLiveSync();
-    const interval = setInterval(fetchLiveSync, 2500);
+    const interval = setInterval(fetchLiveSync, 3000);
 
     const handleSync = () => {
       setStatusVersion((v) => v + 1);
@@ -635,30 +686,85 @@ export function VendorOrdersClient({
 
     // Map Orders
     orders.forEach((o) => {
-      const partsSummary = getPartsSummary(o.rfqs?.parts_description);
+      const rfqData = o.rfqs || (o as any).rfq || {};
+      const partsSummary = getPartsSummary(rfqData.parts_description || (o as any).parts_description);
       const cleanOId = o.id ? String(o.id).replace(/^(ORD-|REQ-|DEAL-)/i, "") : "";
       const live = liveStatuses[o.id] || (cleanOId ? liveStatuses[cleanOId] : undefined);
       const activeOrderStatus = live?.status || o.status || "preparing";
       const activeCourierStatus = (live?.courier_status || (o as any).courier_status || "").toUpperCase();
 
+      const carMake = rfqData.car_make || (o as any).car_make || "غير محدد";
+      const carModel = rfqData.car_model || (o as any).car_model || "";
+      const carYear = rfqData.car_year || (o as any).car_year || "—";
+      const plateNumber = rfqData.plate_number || (o as any).plate_number || "—";
+      const vin = rfqData.vin || (o as any).vin || "—";
+      const deliveryLocation = rfqData.delivery_location || (o as any).delivery_location || "الرياض";
+      const clientName = o.client?.company_name || o.client?.full_name || (o as any).client_name || (o as any).client?.name || "عميل موثق";
+      const clientPhone = o.client?.phone || (o as any).client_phone;
+
+      const locText = String(deliveryLocation || "");
+      const isExplicitDelivery =
+        (o as any).fulfillment_method === "DELIVERY" ||
+        (o as any).delivery_method === "delivery" ||
+        (o as any).shipping_method === "delivery" ||
+        (o as any).is_pickup === false ||
+        rfqData.fulfillment_method === "DELIVERY" ||
+        rfqData.delivery_method === "delivery" ||
+        rfqData.is_pickup === false ||
+        Number((o as any).delivery_fee) > 0;
+
+      const hasPickupPhrase =
+        locText === "استلام من فرع المورد" ||
+        locText === "استلام يدوي" ||
+        locText.startsWith("استلام من فرع المورد");
+
+      const isPickup = !isExplicitDelivery && Boolean(
+        hasPickupPhrase ||
+        (o as any).fulfillment_method === "BRANCH_PICKUP" ||
+        (o as any).fulfillment_method === "SELF_PICKUP" ||
+        (o as any).delivery_method === "pickup" ||
+        (o as any).delivery_type === "pickup" ||
+        (o as any).is_pickup === true ||
+        rfqData.fulfillment_method === "BRANCH_PICKUP" ||
+        rfqData.fulfillment_method === "SELF_PICKUP" ||
+        rfqData.delivery_method === "pickup" ||
+        rfqData.is_pickup === true
+      );
+
+      const partsSub = Number((o as any).parts_subtotal ?? (o as any).subtotal ?? 0);
+      const vendorFeeRate = Number(
+        (o as any).vendor_platform_fee_percent ??
+        (o as any).quote?.vendor_platform_fee_percent ??
+        15
+      );
+      const vendorFeeAmt = Number(
+        (o as any).vendor_platform_fee ??
+        ((partsSub * vendorFeeRate) / 100).toFixed(2)
+      );
+      const netParts = Math.max(0, Number((partsSub - vendorFeeAmt).toFixed(2)));
+
       rows.push({
         rawId: o.id,
         displayId: `ORD-${shortId(o.id)}`,
         itemType: "order",
-        carMake: o.rfqs?.car_make || "غير محدد",
-        carModel: o.rfqs?.car_model || "",
-        carYear: o.rfqs?.car_year || "—",
-        plateNumber: o.rfqs?.plate_number || "—",
-        vin: o.rfqs?.vin || "—",
+        carMake,
+        carModel,
+        carYear,
+        plateNumber,
+        vin,
         partsText: partsSummary.text,
         partsCount: partsSummary.count,
         imagePathname: partsSummary.imagePathname,
-        deliveryLocation: o.rfqs?.delivery_location || "الرياض",
+        deliveryLocation,
         isUrgent: partsSummary.isUrgent,
-        clientName: o.client?.company_name || o.client?.full_name || "عميل موثق",
-        clientPhone: o.client?.phone,
+        clientName,
+        clientPhone,
         myQuotePrice: o.total_price,
         amount: o.total_price,
+        partsSubtotal: partsSub > 0 ? partsSub : (Number(o.total_price) || 0),
+        vendorFeePercent: vendorFeeRate,
+        vendorPlatformFee: vendorFeeAmt,
+        vendorNetParts: netParts > 0 ? netParts : (Number(o.total_price) || 0),
         formattedDate: new Date(o.created_at).toLocaleDateString("ar-SA"),
         createdAtRaw: o.created_at,
         status: (() => {
@@ -679,30 +785,72 @@ export function VendorOrdersClient({
           return getEffectiveOrderStatus(o.id, fallback);
         })(),
         targetUrl: `/deal/${o.id}`,
-        isPickup: Boolean(
-          (o as any).fulfillment_method === "BRANCH_PICKUP" ||
-          (o as any).fulfillment_method === "pickup" ||
-          (o as any).fulfillment_method === "SELF_PICKUP" ||
-          (o as any).shipping_method === "pickup" ||
-          (o as any).delivery_method === "pickup" ||
-          (o as any).delivery_type === "pickup" ||
-          (o as any).is_pickup === true ||
-          (o as any).pickup_branch ||
-          (o as any).pickup_location ||
-          o.rfqs?.fulfillment_method === "SELF_PICKUP" ||
-          (o.rfqs as any)?.delivery_method === "pickup" ||
-          (o.rfqs as any)?.is_pickup === true ||
-          String(o.rfqs?.delivery_location || "").includes("فرع") ||
-          String(o.rfqs?.delivery_location || "").includes("استلام")
-        ),
+        isPickup,
         rawOrder: o,
       });
     });
 
+    // Extract all RFQ IDs that already have an order
+    const activeOrderRfqIds = new Set<string>();
+    orders.forEach((o) => {
+      if (o.rfq_id) {
+        activeOrderRfqIds.add(o.rfq_id);
+        activeOrderRfqIds.add(String(o.rfq_id).replace("RFQ-", ""));
+      }
+      if (o.id) {
+        const cleanNum = String(o.id).replace(/\D+/g, "");
+        if (cleanNum) {
+          activeOrderRfqIds.add(`RFQ-${cleanNum}`);
+          activeOrderRfqIds.add(cleanNum);
+        }
+      }
+    });
+
     // Map RFQs
     rfqs.forEach((r) => {
+      if (
+        !r ||
+        !r.id ||
+        r.status === "accepted" ||
+        r.status === "closed" ||
+        r.status === "completed" ||
+        r.status === "cancelled" ||
+        r.status === "ordered" ||
+        activeOrderRfqIds.has(r.id) ||
+        activeOrderRfqIds.has(String(r.id).replace("RFQ-", ""))
+      ) {
+        return; // Exclude converted or accepted RFQs from Pricing Requests tab
+      }
+
       const partsSummary = getPartsSummary(r.parts_description);
-      const myQuote = r.quotes?.[0];
+      const isDemoVendor = !currentVendorId || currentVendorId === "vendor-demo-id" || currentVendorId === "current-vendor-id";
+      let myQuote = r.quotes?.find(
+        (q: any) =>
+          q.vendor_id === currentVendorId ||
+          (isDemoVendor && (q.vendor_id === "vendor-demo-id" || q.vendor_id === "current-vendor-id"))
+      );
+
+      // Local storage fallback for instant response right after vendor submits a quote
+      if (!myQuote && typeof window !== "undefined") {
+        try {
+          const cachedQuotes = localStorage.getItem("rfq_demo_quotes");
+          if (cachedQuotes) {
+            const parsed = JSON.parse(cachedQuotes);
+            if (Array.isArray(parsed)) {
+              myQuote = parsed.find(
+                (q: any) =>
+                  q.rfq_id === r.id &&
+                  (q.vendor_id === currentVendorId ||
+                    (isDemoVendor && (q.vendor_id === "vendor-demo-id" || q.vendor_id === "current-vendor-id")))
+              );
+            }
+          }
+        } catch {}
+      }
+
+      const quotePrice = myQuote && myQuote.total_price != null ? Number(myQuote.total_price) : null;
+      const isQuoted = Boolean(myQuote && quotePrice !== null && quotePrice > 0);
+
       rows.push({
         rawId: r.id,
         displayId: `RFQ-${shortId(r.id)}`,
@@ -718,11 +866,11 @@ export function VendorOrdersClient({
         deliveryLocation: r.delivery_location || "الرياض",
         isUrgent: partsSummary.isUrgent,
         clientName: "شركة مشتريات (عميل B2B)",
-        myQuotePrice: myQuote ? (myQuote.total_price ?? null) : null,
-        amount: myQuote ? (myQuote.total_price ?? null) : null,
+        myQuotePrice: quotePrice,
+        amount: quotePrice,
         formattedDate: new Date(r.created_at).toLocaleDateString("ar-SA"),
         createdAtRaw: r.created_at,
-        status: myQuote ? "quoted" : r.status,
+        status: isQuoted ? "quoted" : "open",
         targetUrl: `/vendor/quote/${r.id}`,
         rawRfq: r,
       });
@@ -1210,9 +1358,9 @@ export function VendorOrdersClient({
                         {/* Price */}
                         {visibleColumns.includes("price") && (
                           <td className="py-3.5 px-4 text-center">
-                            {row.amount ? (
+                            {row.amount || row.myQuotePrice ? (
                               <span className="font-mono font-black text-emerald-700 text-xs">
-                                {fmt(row.amount)} ر.س
+                                {fmt(row.amount || row.myQuotePrice || 0)} ر.س
                               </span>
                             ) : (
                               <span className="text-[10px] text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md font-bold">
@@ -1288,8 +1436,8 @@ export function VendorOrdersClient({
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
               {filteredRows.map((row) => {
-                const st = getStatusConfig("rfq", row.status);
-                const hasQuoted = row.status === "quoted";
+                const hasQuoted = Boolean(row.myQuotePrice != null && row.myQuotePrice > 0);
+                const st = getStatusConfig("rfq", hasQuoted ? "quoted" : "open");
                 return (
                   <div
                     key={row.rawId}
@@ -1489,7 +1637,7 @@ export function VendorOrdersClient({
 
                           {hasQuoted ? (
                             <span className="text-sm font-black text-emerald-800 font-mono">
-                              {fmt(row.amount || 0)} ر.س
+                              {fmt(row.amount || row.myQuotePrice || 0)} ر.س
                             </span>
                           ) : (
                             <span className="text-[10px] font-bold text-amber-700 bg-amber-100/80 px-2 py-0.5 rounded-md">
@@ -1903,16 +2051,44 @@ export function VendorOrdersClient({
                         </div>
                       </div>
 
-                      {/* 5. Financial Card (قيمة الصفقة المعتمدة) */}
-                      <div className="bg-[#E8F4F1]/60 border border-emerald-100 rounded-2xl p-3.5 flex items-center justify-between">
-                        <div className="flex items-center gap-1.5 text-emerald-800 font-bold text-xs">
-                          <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                          <span>قيمة الصفقة</span>
+                      {/* 5. Financial Card (تفاصيل مستحقات المورد المعتمدة) */}
+                      {row.itemType === "order" && row.partsSubtotal && row.partsSubtotal > 0 ? (
+                        <div className="bg-[#E8F4F1]/80 border border-emerald-200/90 rounded-2xl p-3 space-y-2">
+                          <div className="flex items-center justify-between text-xs border-b border-emerald-200/60 pb-1.5">
+                            <span className="font-bold text-emerald-950 flex items-center gap-1.5">
+                              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                              <span>تفاصيل المستحقات</span>
+                            </span>
+                            <span className="text-[10px] font-bold text-slate-500 font-mono">
+                              الإجمالي: {fmt(row.amount || 0)} ر.س
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-3 gap-1 text-center text-[10px]">
+                            <div className="bg-white rounded-lg p-1.5 border border-slate-200">
+                              <span className="text-slate-500 block text-[9px]">قيمة القطع</span>
+                              <strong className="font-mono text-slate-800 font-bold">{fmt(row.partsSubtotal)} ر.س</strong>
+                            </div>
+                            <div className="bg-amber-50 rounded-lg p-1.5 border border-amber-200">
+                              <span className="text-amber-700 block text-[9px]">رسوم المنصة ({row.vendorFeePercent || 3}%)</span>
+                              <strong className="font-mono text-amber-900 font-bold">-{fmt(row.vendorPlatformFee || 0)} ر.س</strong>
+                            </div>
+                            <div className="bg-emerald-100/90 rounded-lg p-1.5 border border-emerald-300">
+                              <span className="text-emerald-800 block text-[9px] font-bold">صافي المستحقات</span>
+                              <strong className="font-mono text-emerald-950 font-black">{fmt(row.vendorNetParts || 0)} ر.س</strong>
+                            </div>
+                          </div>
                         </div>
-                        <span className="text-base font-black text-gray-900 font-mono">
-                          {fmt(row.amount || 0)} ر.س
-                        </span>
-                      </div>
+                      ) : (
+                        <div className="bg-[#E8F4F1]/60 border border-emerald-100 rounded-2xl p-3.5 flex items-center justify-between">
+                          <div className="flex items-center gap-1.5 text-emerald-800 font-bold text-xs">
+                            <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                            <span>قيمة العرض المالي</span>
+                          </div>
+                          <span className="text-base font-black text-gray-900 font-mono">
+                            {fmt(row.amount || 0)} ر.س
+                          </span>
+                        </div>
+                      )}
                     </div>
 
                     {/* 6. Footer: Actions & Advance Status */}

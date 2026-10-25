@@ -22,6 +22,7 @@ import {
   Loader2,
   ExternalLink,
   ChevronRight,
+  MessageSquare,
 } from "lucide-react";
 import { DeliveryRecord } from "@/lib/courier-service";
 import {
@@ -293,6 +294,16 @@ export default function CourierTripExecutionPage({
     ? `https://www.google.com/maps/dir/?api=1&destination=${delivery.dropoff_coords.lat},${delivery.dropoff_coords.lng}`
     : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(delivery.dropoff_address)}`;
 
+  // WhatsApp Deep Link & Phone Cleaning for Client Contact
+  const rawClientPhone = delivery.recipient_phone || delivery.client_phone || "0501234567";
+  const cleanPhone = rawClientPhone.replace(/\D/g, "");
+  const saudiWhatsAppPhone = cleanPhone.startsWith("966")
+    ? cleanPhone
+    : cleanPhone.startsWith("05")
+    ? `966${cleanPhone.substring(1)}`
+    : `966${cleanPhone}`;
+  const customerWhatsAppUrl = `https://wa.me/${saudiWhatsAppPhone}`;
+
   // Determine Primary CTA Button Text & Target
   let nextActionLabel = "بدء التحرك للمورد";
   let nextTargetStatus: CourierDeliveryStatus = "EN_ROUTE_PICKUP";
@@ -411,6 +422,62 @@ export default function CourierTripExecutionPage({
         </div>
       </div>
 
+      {/* ── Vendor Preparation & Readiness Timer Card (Web) ── */}
+      <div
+        className={`rounded-3xl p-4 border shadow-2xs space-y-2.5 transition-all ${
+          delivery.is_ready_for_pickup
+            ? "bg-gradient-to-br from-emerald-50/90 to-teal-50/70 border-emerald-200 text-emerald-950"
+            : "bg-gradient-to-br from-amber-50/90 to-orange-50/70 border-amber-200 text-amber-950"
+        }`}
+      >
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            {delivery.is_ready_for_pickup ? (
+              <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+            ) : (
+              <Clock className="w-5 h-5 text-amber-600 shrink-0" />
+            )}
+            <div>
+              <span className="text-xs font-black block">
+                {delivery.is_ready_for_pickup
+                  ? "الطلب جاهز للاستلام الميداني من المورد 🚀"
+                  : "الطلب قيد التجهيز والتعبئة لدى المورد ⏳"}
+              </span>
+              <span className="text-[10px] text-slate-500 font-bold block mt-0.5">
+                {delivery.is_ready_for_pickup
+                  ? "تم اعتماد جاهزية الشحنة بمستودع المورد ويمكنك التوجه للاستلام فوراً"
+                  : "حدد المورد مدة التجهيز المقدرة عند تقديم العرض، يرجى التنسيق قبل التوجه"}
+              </span>
+            </div>
+          </div>
+          <span
+            className={`text-[10px] font-black px-2.5 py-1 rounded-full border shrink-0 ${
+              delivery.is_ready_for_pickup
+                ? "bg-emerald-100 text-emerald-900 border-emerald-300"
+                : "bg-amber-100 text-amber-900 border-amber-300"
+            }`}
+          >
+            {delivery.is_ready_for_pickup ? "جاهز للتوجه ✓" : "قيد الانتظار"}
+          </span>
+        </div>
+
+        <div className="flex items-center justify-between pt-1 border-t border-slate-200/50 text-xs">
+          <div className="flex items-center gap-1.5 text-slate-700 font-bold text-[11px]">
+            <Clock className="w-3.5 h-3.5 text-slate-400" />
+            <span>مدة التجهيز المعتمدة بالعرض:</span>
+            <span className="font-black text-slate-900">
+              {delivery.prep_time_text || (delivery.delivery_days ? `خلال ${delivery.delivery_days} يوم` : "خلال 24 ساعة")}
+            </span>
+          </div>
+
+          {delivery.estimated_ready_at && (
+            <span className="text-[10px] text-slate-500 font-mono">
+              الموعد المتوقع: {new Date(delivery.estimated_ready_at).toLocaleTimeString("ar-SA", { hour: "2-digit", minute: "2-digit" })}
+            </span>
+          )}
+        </div>
+      </div>
+
       {/* ── Leg 1: Supplier Pickup Card ── */}
       <div className={`bg-white rounded-3xl p-4 border shadow-2xs space-y-3 transition-all ${
         ["ASSIGNED", "EN_ROUTE_PICKUP", "ARRIVED_PICKUP"].includes(currentStatus)
@@ -500,19 +567,49 @@ export default function CourierTripExecutionPage({
             </div>
           </div>
 
-          <a
-            href={`tel:${delivery.client_phone}`}
-            className="px-3 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-200/70 rounded-xl text-xs font-bold flex items-center gap-1 shadow-2xs"
-          >
-            <Phone className="w-3 h-3" />
-            <span>اتصال</span>
-          </a>
+          <span className="text-[11px] font-bold text-slate-500">
+            {delivery.dropoff_city || "الرياض"}
+          </span>
         </div>
 
         <p className="text-xs font-bold text-slate-800 flex items-start gap-1.5">
           <MapPin className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
           <span>{delivery.dropoff_address}</span>
         </p>
+
+        {/* Prominent Customer Contact Box (Requirement 3: phone number clearly visible + WhatsApp & Call) */}
+        <div className="bg-slate-50 p-2.5 rounded-2xl border border-slate-200/80 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="w-8 h-8 rounded-xl bg-blue-100 text-blue-800 flex items-center justify-center shrink-0">
+              <Phone className="w-4 h-4" />
+            </div>
+            <div className="min-w-0">
+              <span className="text-[10px] text-slate-400 font-bold block">رقم جوال العميل للتواصل:</span>
+              <span className="text-xs font-black text-slate-900 font-mono tracking-wider block" dir="ltr">
+                {rawClientPhone}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1.5 shrink-0">
+            <a
+              href={`tel:${rawClientPhone}`}
+              className="px-2.5 py-1.5 bg-white hover:bg-slate-100 text-slate-800 border border-slate-200 rounded-xl text-xs font-bold flex items-center gap-1 shadow-2xs transition-all"
+            >
+              <Phone className="w-3.5 h-3.5 text-slate-600" />
+              <span>اتصال</span>
+            </a>
+            <a
+              href={customerWhatsAppUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1 shadow-2xs transition-all"
+            >
+              <MessageSquare className="w-3.5 h-3.5 text-white" />
+              <span>واتساب</span>
+            </a>
+          </div>
+        </div>
 
         {/* Action Button: Navigation Deep Link */}
         <a

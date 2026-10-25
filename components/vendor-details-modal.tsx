@@ -33,6 +33,10 @@ export interface VendorModalData {
   commitmentRate?: string;
   memberSince?: string;
   isVerified?: boolean;
+  city?: string;
+  phone?: string;
+  district?: string;
+  address?: string;
   reviews?: VendorReview[];
   branches?: VendorBranchItem[];
 }
@@ -286,7 +290,6 @@ export function VendorDetailsModal({ isOpen, onClose, vendor }: VendorDetailsMod
                       </div>
                       <p className="text-[11px] text-slate-600 mr-5 leading-relaxed font-medium">
                         {b.city} {b.district ? `• ${b.district}` : ""} • {b.address}
-                        {b.contact_phone ? ` • هاتف: ${b.contact_phone}` : ""}
                       </p>
                     </div>
                   );

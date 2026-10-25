@@ -391,7 +391,39 @@ export default function SubmitQuotePage() {
   const [items, setItems] = useState<QuoteItem[]>([]);
   const [deliveryCost, setDeliveryCost] = useState("0");
   const [deliveryDays, setDeliveryDays] = useState("1");
-  const [taxRate] = useState(15);
+  const [platformSettings, setPlatformSettings] = useState({
+    vat_percent: 15,
+    platform_commission_percent: 15,
+    client_platform_fee_percent: 5,
+    vendor_platform_fee_percent: 15,
+    vat_number: "310987654300003",
+    cr_number: "1010789456",
+  });
+
+  useEffect(() => {
+    fetch("/api/v1/settings")
+      .then((r) => r.json())
+      .then((d) => {
+        const s = d?.settings || d?.data;
+        if (s) {
+          setPlatformSettings((prev) => ({
+            ...prev,
+            vat_percent: Number(s.vat_percent ?? 15),
+            platform_commission_percent: Number(s.platform_commission_percent ?? 15),
+            client_platform_fee_percent: Number(s.client_platform_fee_percent ?? s.platform_commission_percent ?? 5),
+            vendor_platform_fee_percent: Number(s.vendor_platform_fee_percent ?? 15),
+            vat_number: s.vat_number || prev.vat_number,
+            cr_number: s.cr_number || prev.cr_number,
+          }));
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const taxRate = Number(platformSettings.vat_percent ?? 15);
+  const clientFeeRate = Number(platformSettings.client_platform_fee_percent ?? platformSettings.platform_commission_percent ?? 5);
+  const vendorFeeRate = Number(platformSettings.vendor_platform_fee_percent ?? 15);
+  const commissionRate = clientFeeRate; // Backwards compatibility alias
   const [notes, setNotes] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -464,6 +496,24 @@ export default function SubmitQuotePage() {
             email: "vendor@rfqsa.tech",
             user_metadata: { role: "vendor", full_name: "مؤسسة قطع الغيار المعتمدة", company_name: "مؤسسة قطع الغيار المعتمدة" },
           } as any;
+        }
+
+        // Fetch dynamic platform settings (VAT & Commission)
+        try {
+          const sRes = await fetch("/api/v1/settings", { cache: "no-store" });
+          if (sRes.ok) {
+            const sJson = await sRes.json();
+              setPlatformSettings({
+                vat_percent: Number(sJson.settings.vat_percent ?? 15),
+                platform_commission_percent: Number(sJson.settings.client_platform_fee_percent ?? sJson.settings.platform_commission_percent ?? 5),
+                client_platform_fee_percent: Number(sJson.settings.client_platform_fee_percent ?? sJson.settings.platform_commission_percent ?? 5),
+                vendor_platform_fee_percent: Number(sJson.settings.vendor_platform_fee_percent ?? 6),
+                vat_number: sJson.settings.vat_number || "310987654300003",
+                cr_number: sJson.settings.cr_number || "1010789456",
+              });
+          }
+        } catch (sErr) {
+          console.warn("Could not load dynamic platform settings:", sErr);
         }
 
         // Check for existing quote to pre-populate form (DO NOT redirect)
@@ -551,7 +601,21 @@ export default function SubmitQuotePage() {
         }
 
         const rfqExtra = parseRFQExtraDetails(rfqData.parts_description, rfqData.delivery_location);
-        const isPickupOrder = (rfqData as any).fulfillment_method === "SELF_PICKUP" || rfqExtra.deliveryMethod === "pickup" || rfqExtra.fulfillmentMethod === "SELF_PICKUP";
+        const fulfillmentMethod = (rfqData as any).fulfillment_method || rfqExtra.fulfillmentMethod;
+        const deliveryMethod = (rfqData as any).delivery_method || (rfqData as any).delivery_type || rfqExtra.deliveryMethod;
+
+        let isPickupOrder = false;
+        if (fulfillmentMethod === "DELIVERY" || deliveryMethod === "delivery" || deliveryMethod === "shipping") {
+          isPickupOrder = false;
+        } else if (
+          fulfillmentMethod === "SELF_PICKUP" ||
+          fulfillmentMethod === "BRANCH_PICKUP" ||
+          deliveryMethod === "pickup" ||
+          (rfqData as any).is_pickup === true ||
+          (rfqData as any).pickup_branch
+        ) {
+          isPickupOrder = true;
+        }
 
         // Centralized RIFQ Fleet Delivery Calculation
         try {
@@ -576,15 +640,25 @@ export default function SubmitQuotePage() {
           });
 
           setDeliveryCalc(calcResult);
-          setDeliveryCost(isPickupOrder ? "0" : String(calcResult?.delivery_fee_net ?? 0));
-          setDeliveryDays(isPickupOrder ? "0" : String(calcResult?.estimated_days ?? 1));
+          const computedFee = calcResult?.delivery_fee_net && calcResult.delivery_fee_net > 0 ? calcResult.delivery_fee_net : 25;
+          setDeliveryCost(isPickupOrder ? "0" : String(computedFee));
+          setDeliveryDays(isPickupOrder ? "0" : String(calcResult?.estimated_days || 1));
         } catch (calcErr) {
           console.warn("Delivery calculation warning:", calcErr);
-          setDeliveryCost("0");
+          setDeliveryCost(isPickupOrder ? "0" : "25");
           setDeliveryDays("1");
         }
 
-        if (existingQuote) {
+        // Ensure only real previously submitted quotes by this specific vendor are used
+        const isRealExistingQuote = Boolean(
+          existingQuote &&
+          existingQuote.vendor_id === user.id &&
+          !String(existingQuote.id).includes("MOCK") &&
+          !String(existingQuote.id).startsWith("Q-8412") &&
+          !String(existingQuote.id).startsWith("Q-6190")
+        );
+
+        if (isRealExistingQuote) {
           if (existingQuote.notes) {
             const rawNote = existingQuote.notes;
             const matchNote = rawNote.match(/📝 ملاحظات: (.*)/);
@@ -602,6 +676,9 @@ export default function SubmitQuotePage() {
             if (pt.hours != null) setPrepHours(pt.hours);
             if (pt.minutes != null) setPrepMinutes(pt.minutes);
           }
+        } else {
+          // Strictly empty notes for new or first-time view by vendor
+          setNotes("");
         }
 
         try {
@@ -617,12 +694,15 @@ export default function SubmitQuotePage() {
         setRfq(rfqData as RFQ);
         setItems(
           parsed.map((p, idx) => {
-            const existingItem = existingQuote?.items?.find(
-              (it: any) =>
-                it.part_name === p.partName ||
-                (it.part_number && p.partNumber && it.part_number === p.partNumber)
-            ) || existingQuote?.items?.[idx];
+            const existingItem = isRealExistingQuote
+              ? (existingQuote?.items?.find(
+                  (it: any) =>
+                    it.part_name === p.partName ||
+                    (it.part_number && p.partNumber && it.part_number === p.partNumber)
+                ) || existingQuote?.items?.[idx])
+              : null;
 
+            // Pricing fields MUST be strictly empty strings for new quote submissions
             const origPrice = existingItem?.original_price ? String(existingItem.original_price) : "";
             const commPrice = existingItem?.commercial_price ? String(existingItem.commercial_price) : "";
             const commBrand = existingItem?.commercial_brand || p.commercialBrand || "";
@@ -774,16 +854,36 @@ export default function SubmitQuotePage() {
     : 0;
 
   const deliveryCostNum = parseFloat(deliveryCost) || 0;
-  const taxAmount = (partsSubtotal * taxRate) / 100;
-  const grandTotal = partsSubtotal + taxAmount + deliveryCostNum;
 
-  const originalTaxAmount = (originalSubtotal * taxRate) / 100;
-  const originalTotalWithTax = originalSubtotal + originalTaxAmount;
-  const originalGrandTotal = originalSubtotal > 0 ? originalTotalWithTax + deliveryCostNum : 0;
+  // Platform Fees & VAT Calculations:
+  // 1. Client Fee: Added to parts subtotal before VAT
+  const clientCommissionAmount = Number(((partsSubtotal * clientFeeRate) / 100).toFixed(2));
+  const commissionAmount = clientCommissionAmount; // Compatibility alias
+  // 2. Vendor Fee: Deducted from vendor dues without altering the parts price shown to client
+  const vendorFeeAmount = Number(((partsSubtotal * vendorFeeRate) / 100).toFixed(2));
+  const vendorNetParts = Math.max(0, Number((partsSubtotal - vendorFeeAmount).toFixed(2)));
+  // 3. 15% VAT strictly on parts subtotal
+  const taxAmount = Number(((partsSubtotal * taxRate) / 100).toFixed(2));
+  const vendorNetDues = Number((vendorNetParts + taxAmount).toFixed(2));
+  const grandTotal = Number((partsSubtotal + clientCommissionAmount + taxAmount + deliveryCostNum).toFixed(2));
 
-  const commercialTaxAmount = (commercialSubtotal * taxRate) / 100;
-  const commercialTotalWithTax = commercialSubtotal + commercialTaxAmount;
-  const commercialGrandTotal = commercialSubtotal > 0 ? commercialTotalWithTax + deliveryCostNum : 0;
+  const originalClientFee = Number(((originalSubtotal * clientFeeRate) / 100).toFixed(2));
+  const originalVendorFee = Number(((originalSubtotal * vendorFeeRate) / 100).toFixed(2));
+  const originalVendorNet = Math.max(0, Number((originalSubtotal - originalVendorFee).toFixed(2)));
+  const originalCommission = originalClientFee;
+  const originalTaxAmount = Number(((originalSubtotal * taxRate) / 100).toFixed(2));
+  // Vendor quote total is parts subtotal + 15% VAT on parts (e.g. 100 + 15 = 115 SAR)
+  const originalTotalWithTax = Number((originalSubtotal + originalTaxAmount).toFixed(2));
+  const originalGrandTotal = originalSubtotal > 0 ? Number((originalTotalWithTax + deliveryCostNum).toFixed(2)) : 0;
+
+  const commercialClientFee = Number(((commercialSubtotal * clientFeeRate) / 100).toFixed(2));
+  const commercialVendorFee = Number(((commercialSubtotal * vendorFeeRate) / 100).toFixed(2));
+  const commercialVendorNet = Math.max(0, Number((commercialSubtotal - commercialVendorFee).toFixed(2)));
+  const commercialCommission = commercialClientFee;
+  const commercialTaxAmount = Number(((commercialSubtotal * taxRate) / 100).toFixed(2));
+  // Commercial quote total is parts subtotal + 15% VAT on parts
+  const commercialTotalWithTax = Number((commercialSubtotal + commercialTaxAmount).toFixed(2));
+  const commercialGrandTotal = commercialSubtotal > 0 ? Number((commercialTotalWithTax + deliveryCostNum).toFixed(2)) : 0;
 
   const copyVin = () => {
     if (rfq?.vin) {
@@ -943,8 +1043,31 @@ export default function SubmitQuotePage() {
         console.warn("Delivery snapshot fallback:", errSnap);
       }
 
-      const verifiedDeliveryCost = finalCalc?.delivery_fee_net ?? 25;
-      const verifiedGrandTotal = partsSubtotal + taxAmount + verifiedDeliveryCost;
+      const rfqExtraDetails = parseRFQExtraDetails(rfq.parts_description, rfq.delivery_location);
+      const rfqFulfillment = (rfq as any).fulfillment_method || rfqExtraDetails.fulfillmentMethod;
+      const rfqDeliveryMethod = (rfq as any).delivery_method || (rfq as any).delivery_type || rfqExtraDetails.deliveryMethod;
+
+      let isPickupOrder = false;
+      if (rfqFulfillment === "DELIVERY" || rfqDeliveryMethod === "delivery" || rfqDeliveryMethod === "shipping") {
+        isPickupOrder = false;
+      } else if (
+        rfqFulfillment === "SELF_PICKUP" ||
+        rfqFulfillment === "BRANCH_PICKUP" ||
+        rfqDeliveryMethod === "pickup" ||
+        (rfq as any).is_pickup === true ||
+        (rfq as any).pickup_branch ||
+        (rfq as any).pickup_branch_id
+      ) {
+        isPickupOrder = true;
+      }
+
+      const verifiedDeliveryCost = isPickupOrder ? 0 : (finalCalc?.delivery_fee_net && finalCalc.delivery_fee_net > 0 ? finalCalc.delivery_fee_net : (Number(deliveryCost) > 0 ? Number(deliveryCost) : 25));
+      const verifiedClientFee = Number(((partsSubtotal * clientFeeRate) / 100).toFixed(2));
+      const verifiedVendorFee = Number(((partsSubtotal * vendorFeeRate) / 100).toFixed(2));
+      const verifiedCommission = verifiedClientFee;
+      const verifiedTax = Number(((partsSubtotal * taxRate) / 100).toFixed(2));
+      const vendorQuoteTotal = Number((partsSubtotal + verifiedTax).toFixed(2));
+      const verifiedGrandTotal = Number((partsSubtotal + verifiedClientFee + verifiedTax + verifiedDeliveryCost).toFixed(2));
 
       const prepTimeText = getFormattedPrepTime(prepDays, prepHours, prepMinutes);
       const calculatedPrepDays = Math.max(1, prepDays + (prepHours > 0 || prepMinutes > 0 ? 1 : 0));
@@ -960,7 +1083,17 @@ export default function SubmitQuotePage() {
         id: existingQuoteId || undefined,
         rfq_id: rfq.id,
         vendor_id: user?.id || "vendor-demo-id",
-        total_price: verifiedGrandTotal,
+        total_price: vendorQuoteTotal,
+        quote_total: vendorQuoteTotal,
+        parts_subtotal: partsSubtotal,
+        client_platform_fee_percent: clientFeeRate,
+        client_platform_fee: verifiedClientFee,
+        vendor_platform_fee_percent: vendorFeeRate,
+        vendor_platform_fee: verifiedVendorFee,
+        platform_commission: verifiedClientFee,
+        platform_commission_percent: clientFeeRate,
+        tax_amount: verifiedTax,
+        vat_percent: taxRate,
         delivery_days: calculatedPrepDays,
         delivery_cost: verifiedDeliveryCost,
         delivery_snapshot: {
@@ -1791,29 +1924,39 @@ export default function SubmitQuotePage() {
                   )}
                 </div>
 
-                {/* Tax Breakdown Rows */}
+                {/* Tax Breakdown Rows & Net Dues Breakdown */}
                 <div className="py-2.5 space-y-1.5 text-xs">
                   <div className="flex items-center justify-between text-slate-500 font-bold text-[11px]">
-                    <span>المجموع قبل الضريبة:</span>
+                    <span>قيمة قطع الغيار:</span>
                     <span className="font-mono text-slate-800 font-black">
                       {originalSubtotal.toLocaleString("ar-SA", { minimumFractionDigits: 2 })} ر.س
                     </span>
                   </div>
-                  <div className="flex items-center justify-between text-blue-700 font-bold text-[11px]">
-                    <span className="flex items-center gap-1">
-                      <span>ضريبة القيمة المضافة (15%):</span>
+                  <div className="flex items-center justify-between text-emerald-800 font-bold text-[11px] bg-emerald-50/70 p-1.5 rounded-lg border border-emerald-100">
+                    <span>رسوم المنصة المخصومة من مستحقاتك ({vendorFeeRate}%):</span>
+                    <span className="font-mono text-emerald-950 font-black">
+                      -{originalVendorFee.toLocaleString("ar-SA", { minimumFractionDigits: 2 })} ر.س
                     </span>
+                  </div>
+                  <div className="flex items-center justify-between text-slate-600 font-bold text-[11px] pr-2">
+                    <span>↳ صافي مستحقات القطع لك:</span>
+                    <span className="font-mono text-emerald-800 font-black">
+                      {originalVendorNet.toLocaleString("ar-SA", { minimumFractionDigits: 2 })} ر.س
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-blue-700 font-bold text-[11px]">
+                    <span>ضريبة القيمة المضافة ({taxRate}% على القطع):</span>
                     <span className="font-mono text-blue-900 font-black">
-                      {originalTaxAmount.toLocaleString("ar-SA", { minimumFractionDigits: 2 })} ر.س
+                      +{originalTaxAmount.toLocaleString("ar-SA", { minimumFractionDigits: 2 })} ر.س
                     </span>
                   </div>
                 </div>
 
-                {/* Grand Total incl. VAT */}
+                {/* Grand Total incl. Commission & VAT */}
                 <div className="pt-2.5 border-t border-blue-100/80 flex items-center justify-between bg-blue-50/60 -mx-4 -mb-4 sm:-mx-5 sm:-mb-5 p-3.5 sm:p-4 rounded-b-2xl">
                   <div className="flex flex-col">
-                    <span className="text-[11px] font-black text-blue-950">الإجمالي شامل الضريبة (15%):</span>
-                    <span className="text-[9px] text-blue-600 font-medium">شامل ضريبة القيمة المضافة</span>
+                    <span className="text-[11px] font-black text-blue-950">إجمالي العرض شامل الضريبة:</span>
+                    <span className="text-[9px] text-blue-600 font-medium">قيمة القطع شامل ضريبة القيمة المضافة ({taxRate}%)</span>
                   </div>
                   <div className="flex items-baseline gap-1 text-blue-950 font-mono font-black text-xl sm:text-2xl">
                     <span>{originalTotalWithTax.toLocaleString("ar-SA", { minimumFractionDigits: 2 })}</span>
@@ -1848,26 +1991,36 @@ export default function SubmitQuotePage() {
                 {/* Tax Breakdown Rows */}
                 <div className="py-2.5 space-y-1.5 text-xs">
                   <div className="flex items-center justify-between text-slate-500 font-bold text-[11px]">
-                    <span>المجموع قبل الضريبة:</span>
+                    <span>قيمة قطع الغيار:</span>
                     <span className="font-mono text-slate-800 font-black">
                       {commercialSubtotal.toLocaleString("ar-SA", { minimumFractionDigits: 2 })} ر.س
                     </span>
                   </div>
-                  <div className="flex items-center justify-between text-amber-700 font-bold text-[11px]">
-                    <span className="flex items-center gap-1">
-                      <span>ضريبة القيمة المضافة (15%):</span>
+                  <div className="flex items-center justify-between text-emerald-800 font-bold text-[11px] bg-emerald-50/70 p-1.5 rounded-lg border border-emerald-100">
+                    <span>رسوم المنصة المخصومة من مستحقاتك ({vendorFeeRate}%):</span>
+                    <span className="font-mono text-emerald-950 font-black">
+                      -{commercialVendorFee.toLocaleString("ar-SA", { minimumFractionDigits: 2 })} ر.س
                     </span>
+                  </div>
+                  <div className="flex items-center justify-between text-slate-600 font-bold text-[11px] pr-2">
+                    <span>↳ صافي مستحقات القطع لك:</span>
+                    <span className="font-mono text-emerald-800 font-black">
+                      {commercialVendorNet.toLocaleString("ar-SA", { minimumFractionDigits: 2 })} ر.س
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-amber-700 font-bold text-[11px]">
+                    <span>ضريبة القيمة المضافة ({taxRate}% على القطع):</span>
                     <span className="font-mono text-amber-900 font-black">
-                      {commercialTaxAmount.toLocaleString("ar-SA", { minimumFractionDigits: 2 })} ر.س
+                      +{commercialTaxAmount.toLocaleString("ar-SA", { minimumFractionDigits: 2 })} ر.س
                     </span>
                   </div>
                 </div>
 
-                {/* Grand Total incl. VAT */}
+                {/* Grand Total incl. Commission & VAT */}
                 <div className="pt-2.5 border-t border-amber-100/80 flex items-center justify-between bg-amber-50/60 -mx-4 -mb-4 sm:-mx-5 sm:-mb-5 p-3.5 sm:p-4 rounded-b-2xl">
                   <div className="flex flex-col">
-                    <span className="text-[11px] font-black text-amber-950">الإجمالي شامل الضريبة (15%):</span>
-                    <span className="text-[9px] text-amber-600 font-medium">شامل ضريبة القيمة المضافة</span>
+                    <span className="text-[11px] font-black text-amber-950">إجمالي العرض شامل الضريبة:</span>
+                    <span className="text-[9px] text-amber-600 font-medium">قيمة القطع شامل ضريبة القيمة المضافة ({taxRate}%)</span>
                   </div>
                   <div className="flex items-baseline gap-1 text-amber-950 font-mono font-black text-xl sm:text-2xl">
                     <span>{commercialTotalWithTax.toLocaleString("ar-SA", { minimumFractionDigits: 2 })}</span>

@@ -66,6 +66,56 @@ const SAUDI_CITIES = [
   { name: "الخبر", value: "الخبر", lat: 26.2172, lng: 50.1971 },
 ];
 
+const CAR_MODELS_BY_BRAND: Record<string, string[]> = {
+  toyota: ["كامري", "كورولا", "لاند كروزر", "برادو", "راف4", "هايلكس", "يارس", "أفالون", "سيكويا", "فورتشنر", "أخرى"],
+  lexus: ["ES", "LS", "LX", "RX", "GX", "IS", "NX", "أخرى"],
+  hyundai: ["إيلانترا", "سوناتا", "توسان", "سانتافي", "كريتا", "أزيرا", "أكسنت", "H1", "أخرى"],
+  kia: ["أوبتيما", "سبورتاج", "سورينتو", "بيكانتو", "سيراتو", "تيلورايد", "كادينزا", "K5", "أخرى"],
+  nissan: ["التيما", "ماكسيما", "باترول", "إكس-تريل", "مورانو", "أرمادا", "صني", "تيدا", "أخرى"],
+  honda: ["أكورد", "سيفيك", "CR-V", "HR-V", "بايلوت", "أخرى"],
+  mercedes_benz: ["C-Class (C200)", "E-Class (E200/E300)", "S-Class (S500)", "GLC", "GLE", "A-Class", "G-Class", "أخرى"],
+  bmw: ["الفئة الثالثة (320i)", "الفئة الخامسة (520i)", "الفئة السابعة (730i)", "X3", "X5", "X7", "أخرى"],
+  ford: ["تورس", "إكسبلورر", "إف-150 (F-150)", "موستانج", "إيدج", "برونكو", "إكسبيديشن", "أخرى"],
+  gmc: ["سييرا", "يوكن", "اكاديا", "تيرين", "دينالي", "أخرى"],
+  chevrolet: ["ماليبو", "إمبالا", "كابتيفا", "تاهو", "سيلفرادو", "كابرس", "ترافرس", "أخرى"],
+  jeep: ["جراند شيروكي", "رانجلر", "كومباس", "رينيجيد", "جلاديتور", "أخرى"],
+  mazda: ["مازدا 6", "مازدا 3", "CX-9", "CX-5", "CX-30", "أخرى"],
+  mitsubishi: ["باجيرو", "لانسر", "أوتلاندر", "L200", "إكليبس", "أخرى"],
+  audi: ["A4", "A6", "A8", "Q5", "Q7", "Q8", "أخرى"],
+  volkswagen: ["باسات", "تيجوان", "طوارق", "جولف", "أرتيون", "أخرى"],
+  porsche: ["كايين", "باناميرا", "ماكان", "911", "أخرى"],
+  land_rover: ["رينج روفر", "ديفندر", "ديسكفري", "إيفوك", "أخرى"],
+  changan: ["CS75", "CS85", "CS95", "CS35 Plus", "إيدو", "أخرى"],
+  haval: ["H6", "H9", "جوليان", "دارغو", "أخرى"],
+  geely: ["كولراي", "توغيلا", "أزكارا", "مونجارو", "إمجراند", "أخرى"],
+  mg: ["MG 5", "MG 6", "MG GT", "MG RX5", "MG ZS", "MG HS", "أخرى"],
+};
+
+const BRAND_NAMES_AR: Record<string, string> = {
+  toyota: "تويوتا",
+  lexus: "لكزس",
+  hyundai: "هيونداي",
+  kia: "كيا",
+  nissan: "نيسان",
+  honda: "هوندا",
+  mercedes_benz: "مرسيدس",
+  bmw: "بي إم دبليو",
+  ford: "فورد",
+  gmc: "جي إم سي",
+  chevrolet: "شيفروليه",
+  jeep: "جيب",
+  mazda: "مازدا",
+  mitsubishi: "ميتسوبيشي",
+  audi: "أودي",
+  volkswagen: "فولكس واجن",
+  porsche: "بورش",
+  land_rover: "لاند روفر",
+  changan: "شانجان",
+  haval: "هافال",
+  geely: "جيلي",
+  mg: "إم جي",
+};
+
 export default function VendorsMapClient() {
   const router = useRouter();
 
@@ -83,6 +133,7 @@ export default function VendorsMapClient() {
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [selectedCity, setSelectedCity] = useState<string>("all");
   const [selectedBrand, setSelectedBrand] = useState<string>("all");
+  const [selectedModel, setSelectedModel] = useState<string>("all");
   const [filterPickupOnly, setFilterPickupOnly] = useState<boolean>(false);
   const [filterOpenNowOnly, setFilterOpenNowOnly] = useState<boolean>(false);
 
@@ -105,6 +156,7 @@ export default function VendorsMapClient() {
       const params = new URLSearchParams();
       if (selectedCity && selectedCity !== "all") params.set("city", selectedCity);
       if (selectedBrand && selectedBrand !== "all") params.set("brand", selectedBrand);
+      if (selectedModel && selectedModel !== "all") params.set("model", selectedModel);
       if (filterPickupOnly) params.set("accepts_pickup", "true");
       if (filterOpenNowOnly) params.set("open_now", "true");
       if (searchQuery.trim()) params.set("search", searchQuery.trim());
@@ -131,7 +183,7 @@ export default function VendorsMapClient() {
 
   useEffect(() => {
     fetchVendors();
-  }, [selectedCity, selectedBrand, filterPickupOnly, filterOpenNowOnly, clientCoords]);
+  }, [selectedCity, selectedBrand, selectedModel, filterPickupOnly, filterOpenNowOnly, clientCoords]);
 
   // Debounced search query
   useEffect(() => {
@@ -346,11 +398,16 @@ export default function VendorsMapClient() {
     }
   };
 
-  // ── 6. Navigate to new-rfq with verified server params ──
+  // ── 6. Navigate to new-rfq with verified server params & selected vehicle ──
   const handleStartPickupOrder = (vendor: MapVendorDTO) => {
     const vId = vendor.vendor_id || vendor.id.split("__")[0] || vendor.id;
     const bId = vendor.branch_id || vendor.id.split("__")[1] || "";
-    router.push(`/client/new-rfq?vendorId=${encodeURIComponent(vId)}&branchId=${encodeURIComponent(bId)}&mode=pickup&source=VENDOR_MAP`);
+    const brandAr = BRAND_NAMES_AR[selectedBrand] || (selectedBrand !== "all" ? selectedBrand : "");
+    const modelAr = selectedModel !== "all" ? selectedModel : "";
+    let url = `/client/new-rfq?vendorId=${encodeURIComponent(vId)}&branchId=${encodeURIComponent(bId)}&mode=pickup&source=VENDOR_MAP`;
+    if (brandAr) url += `&carMake=${encodeURIComponent(brandAr)}`;
+    if (modelAr) url += `&carModel=${encodeURIComponent(modelAr)}`;
+    router.push(url);
   };
 
   // Current active vendor object
@@ -481,55 +538,82 @@ export default function VendorsMapClient() {
             <span>يقبل الاستلام الذاتي</span>
           </button>
 
-          {/* Brand & Origin Filter */}
-          <div className="flex items-center gap-1.5 shrink-0 mr-auto">
-            <span className="text-[11px] font-bold text-slate-400 ml-1">تخصص ونوع المركبة:</span>
-            <select
-              value={selectedBrand}
-              onChange={(e) => setSelectedBrand(e.target.value)}
-              className="h-8 px-2.5 bg-slate-900 border border-slate-800 rounded-xl text-xs font-bold text-slate-300 focus:outline-none focus:border-blue-500"
-            >
-              <option value="all">كافة الأنواع والماركات 🌐</option>
-              <optgroup label="🇯🇵 المنشأ الياباني">
-                <option value="toyota">تويوتا (Toyota)</option>
-                <option value="lexus">لكزس (Lexus)</option>
-                <option value="nissan">نيسان (Nissan)</option>
-                <option value="honda">هوندا (Honda)</option>
-                <option value="mazda">مازدا (Mazda)</option>
-                <option value="mitsubishi">ميتسوبيشي (Mitsubishi)</option>
-                <option value="isuzu">إيسوزو (Isuzu)</option>
-              </optgroup>
-              <optgroup label="🇺🇸 المنشأ الأمريكي">
-                <option value="ford">فورد (Ford)</option>
-                <option value="gmc">جي إم سي (GMC)</option>
-                <option value="chevrolet">شيفروليه (Chevrolet)</option>
-                <option value="cadillac">كاديلاك (Cadillac)</option>
-                <option value="jeep">جيب (Jeep)</option>
-                <option value="dodge">دودج (Dodge)</option>
-                <option value="ram">رام (RAM)</option>
-              </optgroup>
-              <optgroup label="🇰🇷 المنشأ الكوري">
-                <option value="hyundai">هيونداي (Hyundai)</option>
-                <option value="kia">كيا (Kia)</option>
-                <option value="genesis">جينيسيس (Genesis)</option>
-              </optgroup>
-              <optgroup label="🇩🇪 المنشأ الأوروبي والألماني">
-                <option value="mercedes_benz">مرسيدس بنز (Mercedes-Benz)</option>
-                <option value="bmw">بي إم دبليو (BMW)</option>
-                <option value="audi">أودي (Audi)</option>
-                <option value="volkswagen">فولكس واجن (Volkswagen)</option>
-                <option value="porsche">بورش (Porsche)</option>
-                <option value="land_rover">لاند روفر (Land Rover)</option>
-              </optgroup>
-              <optgroup label="🇨🇳 المنشأ الصيني">
-                <option value="changan">شانجان (Changan)</option>
-                <option value="haval">هافال (Haval)</option>
-                <option value="geely">جيلي (Geely)</option>
-                <option value="mg">إم جي (MG)</option>
-                <option value="byd">بي واي دي (BYD)</option>
-                <option value="chery">شيري (Chery)</option>
-              </optgroup>
-            </select>
+          {/* Brand & Model Filter */}
+          <div className="flex items-center gap-2 shrink-0 mr-auto flex-wrap">
+            <div className="flex items-center gap-1.5 shrink-0">
+              <span className="text-[11px] font-bold text-slate-400 ml-1">الماركة:</span>
+              <select
+                value={selectedBrand}
+                onChange={(e) => {
+                  setSelectedBrand(e.target.value);
+                  setSelectedModel("all");
+                }}
+                className="h-8 px-2.5 bg-slate-900 border border-slate-800 rounded-xl text-xs font-bold text-slate-300 focus:outline-none focus:border-blue-500 cursor-pointer"
+              >
+                <option value="all">كافة الأنواع والماركات 🌐</option>
+                <optgroup label="🇯🇵 المنشأ الياباني">
+                  <option value="toyota">تويوتا (Toyota)</option>
+                  <option value="lexus">لكزس (Lexus)</option>
+                  <option value="nissan">نيسان (Nissan)</option>
+                  <option value="honda">هوندا (Honda)</option>
+                  <option value="mazda">مازدا (Mazda)</option>
+                  <option value="mitsubishi">ميتسوبيشي (Mitsubishi)</option>
+                  <option value="isuzu">إيسوزو (Isuzu)</option>
+                </optgroup>
+                <optgroup label="🇺🇸 المنشأ الأمريكي">
+                  <option value="ford">فورد (Ford)</option>
+                  <option value="gmc">جي إم سي (GMC)</option>
+                  <option value="chevrolet">شيفروليه (Chevrolet)</option>
+                  <option value="cadillac">كاديلاك (Cadillac)</option>
+                  <option value="jeep">جيب (Jeep)</option>
+                  <option value="dodge">دودج (Dodge)</option>
+                  <option value="ram">رام (RAM)</option>
+                </optgroup>
+                <optgroup label="🇰🇷 المنشأ الكوري">
+                  <option value="hyundai">هيونداي (Hyundai)</option>
+                  <option value="kia">كيا (Kia)</option>
+                  <option value="genesis">جينيسيس (Genesis)</option>
+                </optgroup>
+                <optgroup label="🇩🇪 المنشأ الأوروبي والألماني">
+                  <option value="mercedes_benz">مرسيدس بنز (Mercedes-Benz)</option>
+                  <option value="bmw">بي إم دبليو (BMW)</option>
+                  <option value="audi">أودي (Audi)</option>
+                  <option value="volkswagen">فولكس واجن (Volkswagen)</option>
+                  <option value="porsche">بورش (Porsche)</option>
+                  <option value="land_rover">لاند روفر (Land Rover)</option>
+                </optgroup>
+                <optgroup label="🇨🇳 المنشأ الصيني">
+                  <option value="changan">شانجان (Changan)</option>
+                  <option value="haval">هافال (Haval)</option>
+                  <option value="geely">جيلي (Geely)</option>
+                  <option value="mg">إم جي (MG)</option>
+                  <option value="byd">بي واي دي (BYD)</option>
+                  <option value="chery">شيري (Chery)</option>
+                </optgroup>
+              </select>
+            </div>
+
+            <div className="flex items-center gap-1.5 shrink-0">
+              <span className="text-[11px] font-bold text-slate-400 ml-1">الموديل:</span>
+              <select
+                value={selectedModel}
+                onChange={(e) => setSelectedModel(e.target.value)}
+                disabled={selectedBrand === "all"}
+                className={`h-8 px-2.5 bg-slate-900 border border-slate-800 rounded-xl text-xs font-bold focus:outline-none focus:border-blue-500 cursor-pointer ${
+                  selectedBrand === "all" ? "text-slate-600 opacity-60 cursor-not-allowed" : "text-emerald-400 border-emerald-500/40"
+                }`}
+              >
+                <option value="all">
+                  {selectedBrand === "all" ? "اختر الماركة أولاً" : "كافة الموديلات 🚗"}
+                </option>
+                {selectedBrand !== "all" &&
+                  (CAR_MODELS_BY_BRAND[selectedBrand] || []).map((mod) => (
+                    <option key={mod} value={mod}>
+                      {mod}
+                    </option>
+                  ))}
+              </select>
+            </div>
           </div>
 
         </div>

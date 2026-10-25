@@ -45,7 +45,7 @@ export default function ProfilePage() {
   const pathname = usePathname();
 
   const [profile, setProfile] = useState<ProfileData | null>(null);
-  const [stats, setStats] = useState<Stats>({ ordersCount: 0, completedCount: 0, avgRating: 4.9, reviewsCount: 0 });
+  const [stats, setStats] = useState<Stats>({ ordersCount: 0, completedCount: 0, avgRating: 0, reviewsCount: 0 });
   const [reviewsList, setReviewsList] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [copiedRef, setCopiedRef] = useState(false);
@@ -65,6 +65,39 @@ export default function ProfilePage() {
   const loadProfile = useCallback(async () => {
     setLoading(true);
     try {
+      const res = await fetch("/api/v1/account/profile", {
+        cache: "no-store",
+        headers: { Pragma: "no-cache" },
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.success && data.profile) {
+          const dbProfile = data.profile;
+          setProfile(dbProfile);
+          setFullName(dbProfile.full_name || "");
+          setPhone(dbProfile.phone || "");
+          setCompanyName(dbProfile.company_name || "");
+          setTaxNumber(dbProfile.tax_number || "");
+          setCommercialRegister(dbProfile.commercial_register || "");
+          setNationalAddress(dbProfile.national_address || dbProfile.address || "");
+          setCity(dbProfile.city || "الرياض");
+
+          if (dbProfile.stats) {
+            setStats({
+              ordersCount: Number(dbProfile.stats.ordersCount || 0),
+              completedCount: Number(dbProfile.stats.completedCount || 0),
+              avgRating: Number(dbProfile.stats.avgRating ?? 0),
+              reviewsCount: Number(dbProfile.stats.reviewsCount || 0),
+            });
+          }
+
+          setReviewsList(Array.isArray(dbProfile.reviews) ? dbProfile.reviews : []);
+          return;
+        }
+      }
+
+      // Local fallback in case of network issue
       let user: any = null;
       const { data: authData } = await supabase.auth.getUser();
       user = authData?.user;
@@ -79,20 +112,18 @@ export default function ProfilePage() {
       }
 
       if (!dbProfile) {
-        // Fallback for demo or current active role
-        const { data: anyUser } = await supabase.from("profiles").select("*").eq("role", role).limit(1).maybeSingle();
-        dbProfile = anyUser || {
+        dbProfile = {
           id: role === "vendor" ? "vendor-demo-id" : "client-demo-id",
           full_name: role === "vendor" ? "مؤسسة قطع الغيار المعتمدة" : "شركة المشتريات الوطنية",
           company_name: role === "vendor" ? "مؤسسة قطع الغيار المعتمدة" : "شركة المشتريات الوطنية",
           role,
           email: role === "vendor" ? "vendor@rfqsa.tech" : "client@rfqsa.tech",
-          phone: "0501234567",
-          tax_number: "300012345600003",
-          commercial_register: "1010123456",
-          national_address: "المملكة العربية السعودية، الرياض، حي النخيل",
+          phone: "0551122334",
+          tax_number: "300123456700003",
+          commercial_register: "1010987654",
+          national_address: "الرياض - طريق خريص - حي المنار",
           city: "الرياض",
-          ref_code: role === "vendor" ? "SUP-101" : "CLI-101",
+          ref_code: role === "vendor" ? "VND-501" : "CLI-101",
           created_at: new Date(Date.now() - 90 * 86400000).toISOString(),
         };
       }
@@ -106,34 +137,26 @@ export default function ProfilePage() {
       setNationalAddress(dbProfile.national_address || "");
       setCity(dbProfile.city || "الرياض");
 
-      // Load Real Stats
       const [ordersRes, reviewsRes] = await Promise.all([
         supabase.from("orders").select("id, status").eq(role === "vendor" ? "vendor_id" : "client_id", dbProfile.id),
-        supabase.from("reviews").select("*").eq(role === "vendor" ? "vendor_id" : "client_id", dbProfile.id),
+        supabase.from("deal_reviews").select("*").eq(role === "vendor" ? "reviewee_id" : "client_id", dbProfile.id),
       ]);
 
       const orders = ordersRes.data || [];
       const reviews = reviewsRes.data || [];
-      const completed = orders.filter((o) => o.status === "completed" || o.status === "delivered").length;
-      const avg = reviews.length > 0 ? reviews.reduce((s, r) => s + Number(r.rating || 5), 0) / reviews.length : 4.9;
+      const completed = orders.filter((o: any) => o.status === "completed" || o.status === "delivered").length;
+      const avg = reviews.length > 0 ? reviews.reduce((s: number, r: any) => s + Number(r.rating || 0), 0) / reviews.length : 0;
 
       setStats({
-        ordersCount: orders.length || 39,
-        completedCount: completed || 16,
+        ordersCount: orders.length,
+        completedCount: completed,
         avgRating: Number(avg.toFixed(1)),
-        reviewsCount: reviews.length || 2,
+        reviewsCount: reviews.length,
       });
 
-      setReviewsList(
-        reviews.length > 0
-          ? reviews
-          : [
-              { id: "1", reviewer_name: "مجموعة الوفاق للصيانة", rating: 5, comment: "تعامل راقي والتزام ممتاز بالمواعيد والمواصفات.", created_at: new Date().toISOString() },
-              { id: "2", reviewer_name: "مركز المحركات الحديثة", rating: 5, comment: "سرعة في الاعتماد وتجاوب رائع.", created_at: new Date(Date.now() - 86400000).toISOString() },
-            ]
-      );
+      setReviewsList(reviews);
     } catch (e) {
-      console.error(e);
+      console.error("loadProfile error:", e);
     } finally {
       setLoading(false);
     }
@@ -159,6 +182,7 @@ export default function ProfilePage() {
 
     try {
       const updates = {
+        id: profile.id,
         full_name: fullName,
         phone,
         company_name: companyName,
@@ -168,9 +192,18 @@ export default function ProfilePage() {
         city,
       };
 
-      await supabase.from("profiles").update(updates).eq("id", profile.id);
+      const res = await fetch("/api/v1/account/profile", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updates),
+      });
 
-      setSaveMsg({ type: "success", text: "تم حفظ وتحديث بيانات الملف الشخصي بنجاح" });
+      const resData = await res.json();
+      if (!res.ok || !resData.success) {
+        throw new Error(resData?.error || "تعذر حفظ التعديلات");
+      }
+
+      setSaveMsg({ type: "success", text: "تم حفظ وتحديث بيانات الملف التجاري بنجاح" });
       setTimeout(() => setSaveMsg(null), 4000);
     } catch (err: any) {
       setSaveMsg({ type: "error", text: err.message || "حدث خطأ أثناء الحفظ" });
@@ -254,20 +287,32 @@ export default function ProfilePage() {
             <span className="text-xs font-bold text-slate-400 block">متوسط تقييم الأداء والموثوقية</span>
             <div className="flex items-center gap-2 mt-1">
               <p className="text-3xl font-black text-slate-900 font-mono">
-                {loading ? "..." : stats.avgRating}
+                {loading ? "..." : stats.avgRating > 0 ? stats.avgRating.toFixed(1) : "0"}
               </p>
-              <div className="flex text-amber-400 gap-0.5">
-                {[1, 2, 3, 4, 5].map((s) => (
-                  <Star key={s} className="w-4 h-4 fill-amber-400 text-amber-400" />
-                ))}
+              <div className="flex gap-0.5">
+                {[1, 2, 3, 4, 5].map((s) => {
+                  const isFilled = stats.avgRating > 0 && s <= Math.round(stats.avgRating);
+                  return (
+                    <Star
+                      key={s}
+                      className={`w-4 h-4 ${
+                        isFilled
+                          ? "fill-amber-400 text-amber-400"
+                          : "fill-slate-100 text-slate-300"
+                      }`}
+                    />
+                  );
+                })}
               </div>
             </div>
             <span className="text-[11px] font-bold text-slate-400 block mt-0.5">
-              بناءً على تقييمات الصفقات المكتملة
+              {stats.reviewsCount > 0
+                ? `بناءً على ${stats.reviewsCount} تقييم للصفقات المكتملة`
+                : "عضو جديد · لا توجد تقييمات بعد"}
             </span>
           </div>
           <div className="w-12 h-12 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center">
-            <Star className="w-6 h-6 fill-amber-500" />
+            <Star className={`w-6 h-6 ${stats.avgRating > 0 ? "fill-amber-500 text-amber-500" : "fill-slate-200 text-slate-400"}`} />
           </div>
         </div>
 
@@ -457,27 +502,37 @@ export default function ProfilePage() {
           <span className="text-xs font-bold text-slate-400">{reviewsList.length} تقييم موثق</span>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {reviewsList.map((rev) => (
-            <div key={rev.id} className="p-4 rounded-2xl bg-slate-50 border border-slate-100 space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="font-black text-xs text-slate-900">{rev.reviewer_name}</span>
-                <div className="flex text-amber-400 gap-0.5">
-                  {[1, 2, 3, 4, 5].map((s) => (
-                    <Star
-                      key={s}
-                      className={`w-3.5 h-3.5 ${s <= (rev.rating || 5) ? "fill-amber-400 text-amber-400" : "text-slate-200"}`}
-                    />
-                  ))}
+        {reviewsList.length > 0 ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {reviewsList.map((rev) => (
+              <div key={rev.id} className="p-4 rounded-2xl bg-slate-50 border border-slate-100 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-black text-xs text-slate-900">{rev.reviewer_name}</span>
+                  <div className="flex text-amber-400 gap-0.5">
+                    {[1, 2, 3, 4, 5].map((s) => (
+                      <Star
+                        key={s}
+                        className={`w-3.5 h-3.5 ${s <= (rev.rating || 5) ? "fill-amber-400 text-amber-400" : "text-slate-200"}`}
+                      />
+                    ))}
+                  </div>
                 </div>
+                <p className="text-xs text-slate-600 leading-relaxed font-normal">{rev.comment}</p>
+                <span className="text-[10px] text-slate-400 font-mono block text-left">
+                  {new Date(rev.created_at).toLocaleDateString("ar-SA")}
+                </span>
               </div>
-              <p className="text-xs text-slate-600 leading-relaxed font-normal">{rev.comment}</p>
-              <span className="text-[10px] text-slate-400 font-mono block text-left">
-                {new Date(rev.created_at).toLocaleDateString("ar-SA")}
-              </span>
+            ))}
+          </div>
+        ) : (
+          <div className="p-8 rounded-2xl bg-slate-50/80 border border-dashed border-slate-200 text-center space-y-2">
+            <div className="w-12 h-12 rounded-2xl bg-amber-50 text-amber-500 flex items-center justify-center mx-auto">
+              <Star className="w-6 h-6 fill-amber-400/30" />
             </div>
-          ))}
-        </div>
+            <p className="text-xs font-black text-slate-700">لا توجد تقييمات مسجلة لهذا الحساب حتى الآن</p>
+            <p className="text-[11px] text-slate-400">ستظهر التقييمات وآراء العملاء تلقائياً في هذا القسم فور إتمام صفقاتك وطلباتك بنجاح عبر المنصة.</p>
+          </div>
+        )}
       </div>
     </div>
   );

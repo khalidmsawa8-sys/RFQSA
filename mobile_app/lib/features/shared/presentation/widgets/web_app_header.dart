@@ -10,6 +10,8 @@ class WebTopAppBar extends StatelessWidget implements PreferredSizeWidget {
   final String role; // 'client', 'vendor', 'courier'
   final String? customTitle;
   final VoidCallback? onNotificationTap;
+  final Widget? trailingAction;
+  final Widget? extraAction;
 
   const WebTopAppBar({
     super.key,
@@ -17,6 +19,8 @@ class WebTopAppBar extends StatelessWidget implements PreferredSizeWidget {
     this.role = 'client',
     this.customTitle,
     this.onNotificationTap,
+    this.trailingAction,
+    this.extraAction,
   });
 
   @override
@@ -81,67 +85,78 @@ class WebTopAppBar extends StatelessWidget implements PreferredSizeWidget {
                         'رِفْق',
                         style: TextStyle(
                           color: Colors.white,
-                          fontSize: 15,
+                          fontSize: 14,
                           fontWeight: FontWeight.w900,
                           letterSpacing: -0.5,
                         ),
                       ),
                     ),
                     const SizedBox(width: 8),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Row(
-                          children: [
-                            const Text(
-                              'RFQSA',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 13,
-                                fontWeight: FontWeight.w900,
-                                letterSpacing: 0.5,
-                              ),
-                            ),
-                            const SizedBox(width: 5),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                              decoration: BoxDecoration(
-                                color: AppColors.emeraldSurface,
-                                borderRadius: BorderRadius.circular(4),
-                                border: Border.all(color: AppColors.emeraldBorder),
-                              ),
-                              child: const Text(
-                                'B2B',
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Text(
+                                'RFQSA',
                                 style: TextStyle(
-                                  color: AppColors.emeraldText,
-                                  fontSize: 9,
+                                  color: Colors.white,
+                                  fontSize: 12.5,
                                   fontWeight: FontWeight.w900,
+                                  letterSpacing: 0.5,
                                 ),
                               ),
-                            ),
-                          ],
-                        ),
-                        Text(
-                          customTitle ?? 'المنظومة الموحدة لقطع الغيار',
-                          style: TextStyle(
-                            color: Colors.white.withOpacity(0.6),
-                            fontSize: 9.5,
-                            fontWeight: FontWeight.w500,
+                              const SizedBox(width: 5),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                decoration: BoxDecoration(
+                                  color: AppColors.emeraldSurface,
+                                  borderRadius: BorderRadius.circular(4),
+                                  border: Border.all(color: AppColors.emeraldBorder),
+                                ),
+                                child: const Text(
+                                  'B2B',
+                                  style: TextStyle(
+                                    color: AppColors.emeraldText,
+                                    fontSize: 8.5,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
+                          Text(
+                            customTitle ?? 'المنظومة الموحدة لقطع الغيار',
+                            style: TextStyle(
+                              color: Colors.white.withOpacity(0.65),
+                              fontSize: 9,
+                              fontWeight: FontWeight.w500,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
                     ),
                   ],
                 ),
               ),
 
-              // 3. Quick Action CTA Button
-              _buildRoleCta(context),
+              // 3. Quick Action CTA Button or Custom Trailing Action
+              if (trailingAction != null)
+                trailingAction!
+              else
+                _buildRoleCta(context),
 
-              const SizedBox(width: 8),
+              if (extraAction != null) ...[
+                const SizedBox(width: 6),
+                extraAction!,
+              ],
+
+              const SizedBox(width: 6),
 
               // 4. Notifications Bell with Live Unread Badge
               ValueListenableBuilder<int>(
@@ -206,18 +221,18 @@ class WebTopAppBar extends StatelessWidget implements PreferredSizeWidget {
     if (role == 'client') {
       return ElevatedButton.icon(
         onPressed: () => Navigator.pushNamed(context, AppRouter.clientCreateRfq),
-        icon: const Icon(Icons.add_rounded, size: 15, color: Colors.white),
+        icon: const Icon(Icons.add_rounded, size: 14, color: Colors.white),
         label: const Text(
-          'طلب تسعير',
+          'طلب جديد',
           style: TextStyle(
-            fontSize: 11,
+            fontSize: 10.5,
             fontWeight: FontWeight.w800,
             color: Colors.white,
           ),
         ),
         style: ElevatedButton.styleFrom(
           backgroundColor: AppColors.primary,
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
           minimumSize: Size.zero,
           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),

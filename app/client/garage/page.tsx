@@ -192,12 +192,18 @@ export default function FleetVehiclesManagementPage() {
 
   const fetchVehicles = async () => {
     setLoading(true);
-    const res = await fleetRepository.searchVehicles({
-      organization_id: "org-national-procurement",
-      search_term: search,
-      limit: 100,
-    });
-    setVehicles(res.vehicles);
+    try {
+      const res = await fetch("/api/v1/client/vehicles");
+      const data = await res.json();
+      if (data.success && Array.isArray(data.vehicles)) {
+        setVehicles(data.vehicles);
+        setLoading(false);
+        return;
+      }
+    } catch (e) {
+      console.warn("Failed to fetch vehicles from API:", e);
+    }
+    setVehicles([]);
     setLoading(false);
   };
 
@@ -219,8 +225,14 @@ export default function FleetVehiclesManagementPage() {
   // Toggle Favorite
   const handleToggleFavorite = async (v: VehicleEntity, e: React.MouseEvent) => {
     e.stopPropagation();
-    await fleetRepository.toggleFavorite({ vehicle_id: v.id, user_id: "demo-user-id" });
-    fetchVehicles();
+    try {
+      await fetch(`/api/v1/client/vehicles/${v.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ is_favorite: !v.is_favorite }),
+      });
+    } catch {}
+    await fetchVehicles();
   };
 
   // Branch Helper lookup
@@ -411,16 +423,11 @@ export default function FleetVehiclesManagementPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(vehiclePayload),
         });
-      } catch {}
-
-      // Fallback local update
-      await fleetRepository.updateVehicle({
-        vehicle_id: editingVehicle.id,
-        user_id: "demo-user-id",
-        ...vehiclePayload,
-        vin: vin.toUpperCase(),
-      });
+      } catch (e) {
+        console.warn("Failed to patch vehicle:", e);
+      }
       setEditingVehicle(null);
+      setShowAddModal(false);
     } else {
       // Create via server API
       try {
@@ -429,32 +436,31 @@ export default function FleetVehiclesManagementPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(vehiclePayload),
         });
-      } catch {}
-
-      // Fallback local creation
-      await fleetRepository.createVehicle({
-        organization_id: "org-national-procurement",
-        fleet_id: "fl-exec-01",
-        ...vehiclePayload,
-        vin: vehiclePayload.vin || "",
-        user_id: "demo-user-id",
-      });
+      } catch (e) {
+        console.warn("Failed to create vehicle:", e);
+      }
       setShowAddModal(false);
     }
 
     setSubmitting(false);
-    fetchVehicles();
+    await fetchVehicles();
   };
 
   // Delete Vehicle
   const handleDelete = async (id: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
-    if (confirm("هل أنت متأكد من حذف وأرشفة هذه المركبة؟")) {
-      await fleetRepository.deleteVehicle({ vehicle_id: id, user_id: "demo-user-id" });
+    if (confirm("هل أنت متأكد من حذف هذه المركبة من حسابك؟")) {
+      try {
+        await fetch(`/api/v1/client/vehicles/${id}`, {
+          method: "DELETE",
+        });
+      } catch (e) {
+        console.warn("Failed to delete vehicle:", e);
+      }
       if (selectedVehicleForDetails?.id === id) {
         setSelectedVehicleForDetails(null);
       }
-      fetchVehicles();
+      await fetchVehicles();
     }
   };
 
@@ -1608,7 +1614,6 @@ export default function FleetVehiclesManagementPage() {
                         <p className="text-[11px] text-slate-600 line-clamp-1 font-medium">{b.address}</p>
                         
                         <div className="flex items-center gap-3 pt-1 text-[10px] text-slate-500 flex-wrap">
-                          {b.phone && <span className="font-mono font-bold bg-white px-1.5 py-0.5 rounded border border-slate-200/80">{b.phone}</span>}
                           {b.google_maps_url ? (
                             <a
                               href={b.google_maps_url}

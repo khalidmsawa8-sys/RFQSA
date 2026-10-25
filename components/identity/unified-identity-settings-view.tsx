@@ -57,6 +57,24 @@ export default function UnifiedIdentitySettingsView({ role }: UnifiedIdentitySet
 
   const loadData = async () => {
     setLoading(true);
+
+    // 1. Fetch current logged-in user from Supabase auth
+    const { data: authData } = await supabase.auth.getUser();
+    const currentUser = authData?.user;
+    const currentUserId = currentUser?.id;
+
+    // 2. Fetch real user profile from profiles table
+    let prof: any = null;
+    if (currentUserId) {
+      const { data } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", currentUserId)
+        .maybeSingle();
+      prof = data;
+    }
+
+    // 3. Baseline objects
     const [u, o, m, s, sess, keys, act] = await Promise.all([
       identityRepository.getUserIdentity(),
       identityRepository.getOrganization(role),
@@ -67,33 +85,81 @@ export default function UnifiedIdentitySettingsView({ role }: UnifiedIdentitySet
       identityRepository.getActivityLogs(),
     ]);
 
-    setUser(u);
-    setOrg(o);
-    setMemberships(m);
+    const isRealUser = Boolean(currentUserId && currentUserId !== "usr-demo-101" && currentUserId !== "client-demo-id" && currentUserId !== "vendor-demo-id");
+
+    // Real user identity
+    const realUser: UserIdentityDTO = {
+      user_id: currentUserId || u.user_id,
+      full_name: prof?.full_name || currentUser?.user_metadata?.full_name || (isRealUser ? "عضو مسجل" : u.full_name),
+      email: prof?.email || currentUser?.email || (isRealUser ? "" : u.email),
+      phone: prof?.phone || (isRealUser ? "" : u.phone),
+      preferred_language: "ar",
+      timezone: "Asia/Riyadh",
+      theme: "dark",
+      created_at: prof?.created_at || u.created_at,
+    };
+
+    // Real organization
+    const realOrgName = prof?.company_name || prof?.full_name || (isRealUser ? (role === "vendor" ? "منشأة مورد جديد" : "منشأة عميل") : o.name);
+    const realOrg: OrganizationDTO = {
+      id: `org-${currentUserId || o.id}`,
+      name: realOrgName,
+      cr_number: prof?.commercial_register || (isRealUser ? "غير مسجل" : o.cr_number),
+      tax_number: prof?.tax_number || (isRealUser ? "غير مسجل" : o.tax_number),
+      iban: prof?.iban || (isRealUser ? "" : o.iban),
+      city: prof?.city || (isRealUser ? "" : o.city),
+      address: prof?.national_address || prof?.address || (isRealUser ? "لم يتم تحديد العنوان بعد" : o.address),
+      verification_status: prof?.is_verified ? "approved" : (isRealUser ? "pending" : o.verification_status),
+      verified_badge: Boolean(prof?.is_verified ?? (!isRealUser && o.verified_badge)),
+      created_at: prof?.created_at || o.created_at,
+    };
+
+    setUser(realUser);
+    setOrg(realOrg);
+    setMemberships(isRealUser ? [{
+      id: `mem-${currentUserId}`,
+      user_id: currentUserId!,
+      organization_id: realOrg.id,
+      organization_name: realOrg.name,
+      role: "owner",
+      custom_permissions: ["organization:update", "team:manage"],
+      invitation_status: "accepted",
+      joined_at: prof?.created_at || new Date().toISOString(),
+      last_active_at: new Date().toISOString(),
+    }] : m);
+
     setSubscription(s);
-    setSessions(sess);
-    setApiKeys(keys);
-    setActivities(act);
+    setSessions(isRealUser ? [{
+      id: "sess-cur",
+      device_name: "متصفح الويب الحالي",
+      os: "Web Session",
+      browser: "Chrome/Edge",
+      ip_address: "مباشر",
+      location: "المملكة العربية السعودية",
+      is_current: true,
+      last_active_at: new Date().toISOString(),
+    }] : sess);
+    setApiKeys(isRealUser ? [] : keys);
+    setActivities(isRealUser ? [] : act);
 
-    // Fetch vendor brand & category specializations from Supabase profiles
-    if (u?.user_id) {
-      const { data: prof } = await supabase
-        .from("profiles")
-        .select("specialized_brands, specializes_in_all_brands, specialized_categories, specializes_in_all_categories")
-        .eq("id", u.user_id)
-        .maybeSingle();
-
-      const initialBrands = Array.isArray(prof?.specialized_brands)
+    // Fetch vendor brand & category specializations
+    if (prof) {
+      const initialBrands = Array.isArray(prof.specialized_brands)
         ? prof.specialized_brands
-        : ["toyota", "lexus", "hyundai", "kia", "gmc", "ford", "nissan"];
+        : [];
       setSpecializedBrands(initialBrands);
-      setSpecializesInAllBrands(Boolean(prof?.specializes_in_all_brands || initialBrands.includes("ALL")));
+      setSpecializesInAllBrands(Boolean(prof.specializes_in_all_brands));
 
-      const initialCategories = Array.isArray(prof?.specialized_categories)
+      const initialCategories = Array.isArray(prof.specialized_categories)
         ? prof.specialized_categories
         : [];
       setSpecializedCategories(initialCategories);
-      setSpecializesInAllCategories(prof?.specializes_in_all_categories ?? (initialCategories.includes("ALL") || initialCategories.length === 0));
+      setSpecializesInAllCategories(Boolean(prof.specializes_in_all_categories));
+    } else {
+      setSpecializedBrands([]);
+      setSpecializesInAllBrands(false);
+      setSpecializedCategories([]);
+      setSpecializesInAllCategories(true);
     }
 
     setLoading(false);
@@ -280,32 +346,43 @@ export default function UnifiedIdentitySettingsView({ role }: UnifiedIdentitySet
       {/* ── 2. DASHBOARD STATUS CARDS (6 ENTERPRISE INDICATORS) ── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         {/* Profile Completion */}
-        <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200/90 p-3.5 sm:p-5 shadow-xs">
-          <div className="flex items-center justify-between text-[11px] sm:text-xs font-bold text-slate-500 mb-2">
-            <span>اكتمال الملف</span>
-            <span className="text-emerald-600 font-black font-mono text-xs sm:text-sm">95%</span>
-          </div>
-          <div className="w-full h-2 sm:h-2.5 bg-slate-100 rounded-full overflow-hidden">
-            <div className="h-full bg-gradient-to-r from-emerald-500 to-teal-500 w-[95%]" />
-          </div>
-        </div>
+        {(() => {
+          let score = 25;
+          if (org?.cr_number && org.cr_number !== "غير مسجل") score += 25;
+          if (org?.tax_number && org.tax_number !== "غير مسجل") score += 25;
+          if (org?.address && !org.address.includes("لم يتم")) score += 25;
+          return (
+            <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200/90 p-3.5 sm:p-5 shadow-xs">
+              <div className="flex items-center justify-between text-[11px] sm:text-xs font-bold text-slate-500 mb-2">
+                <span>اكتمال الملف</span>
+                <span className="text-emerald-600 font-black font-mono text-xs sm:text-sm">{score}%</span>
+              </div>
+              <div className="w-full h-2 sm:h-2.5 bg-slate-100 rounded-full overflow-hidden">
+                <div className="h-full bg-gradient-to-r from-emerald-500 to-teal-500" style={{ width: `${score}%` }} />
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Verification Status */}
         <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200/90 p-3.5 sm:p-5 shadow-xs flex items-center justify-between">
           <div className="min-w-0">
             <p className="text-[11px] sm:text-xs text-slate-500 font-bold truncate">توثيق السجل</p>
-            <p className="text-xs sm:text-sm font-black text-emerald-600 mt-0.5 flex items-center gap-1 truncate">
-              <CheckCircle2 className="w-3.5 h-3.5 shrink-0" /> <span className="truncate">موثق B2B</span>
+            <p className={`text-xs sm:text-sm font-black ${org?.verified_badge ? "text-emerald-600" : "text-amber-600"} mt-0.5 flex items-center gap-1 truncate`}>
+              <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+              <span className="truncate">{org?.verified_badge ? "موثق B2B" : "قيد التدقيق"}</span>
             </p>
           </div>
-          <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+          <span className={`w-2.5 h-2.5 rounded-full ${org?.verified_badge ? "bg-emerald-500 animate-pulse" : "bg-amber-400"} shrink-0`} />
         </div>
 
         {/* Active Members */}
         <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200/90 p-3.5 sm:p-5 shadow-xs flex items-center justify-between">
           <div className="min-w-0">
             <p className="text-[11px] sm:text-xs text-slate-500 font-bold truncate">أعضاء الفريق</p>
-            <p className="text-xs sm:text-base font-black text-slate-900 font-mono mt-0.5 truncate">3 نشطين</p>
+            <p className="text-xs sm:text-base font-black text-slate-900 font-mono mt-0.5 truncate">
+              {memberships.length > 0 ? `${memberships.length} مسجلين` : "مالك الحساب"}
+            </p>
           </div>
           <Users className="w-4 h-4 sm:w-5 sm:h-5 text-slate-400 shrink-0" />
         </div>
@@ -314,7 +391,7 @@ export default function UnifiedIdentitySettingsView({ role }: UnifiedIdentitySet
         <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200/90 p-3.5 sm:p-5 shadow-xs flex items-center justify-between">
           <div className="min-w-0">
             <p className="text-[11px] sm:text-xs text-slate-500 font-bold truncate">الجلسات النشطة</p>
-            <p className="text-xs sm:text-base font-black text-slate-900 font-mono mt-0.5 truncate">{sessions.length} موثوقة</p>
+            <p className="text-xs sm:text-base font-black text-slate-900 font-mono mt-0.5 truncate">{sessions.length || 1} موثوقة</p>
           </div>
           <Laptop className="w-4 h-4 sm:w-5 sm:h-5 text-slate-400 shrink-0" />
         </div>
@@ -415,7 +492,7 @@ export default function UnifiedIdentitySettingsView({ role }: UnifiedIdentitySet
                   </div>
                   <div className="bg-white p-3 rounded-xl border border-blue-100">
                     <span className="text-slate-500 font-bold block mb-1">عناوين استلام الورش المسجلة:</span>
-                    <strong className="text-slate-900 font-bold text-xs">3 مستودعات وورش بالرياض وجدة</strong>
+                    <strong className="text-slate-900 font-bold text-xs">{org?.address || "حسب عناوين الفروع والورش المسجلة"}</strong>
                   </div>
                 </div>
               </div>
@@ -444,7 +521,9 @@ export default function UnifiedIdentitySettingsView({ role }: UnifiedIdentitySet
                   </div>
                   <div className="bg-white p-3 rounded-xl border border-emerald-100">
                     <span className="text-slate-500 font-bold block mb-1">نطاق التوصيل المباشر والتسليم:</span>
-                    <strong className="text-slate-900 font-bold text-xs">جميع أحياء الرياض + شحن بين المدن</strong>
+                    <strong className="text-slate-900 font-bold text-xs">
+                      {org?.city ? `تغطية منطقة ${org.city} وكافة المدن` : "حسب الفروع المعتمدة"}
+                    </strong>
                   </div>
                 </div>
               </div>

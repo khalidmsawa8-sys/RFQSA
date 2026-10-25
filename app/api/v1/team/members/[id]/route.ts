@@ -152,7 +152,6 @@ export async function PATCH(
         };
         if (fullName !== undefined) {
           profileUpdates.full_name = fullName.trim();
-          profileUpdates.company_name = fullName.trim();
         }
         if (email !== undefined) profileUpdates.email = email.trim().toLowerCase();
         if (phone !== undefined) profileUpdates.phone = phone.trim();

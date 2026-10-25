@@ -16,6 +16,8 @@ import path from "path";
 import https from "https";
 import { filterRfqsForVendor } from "./brand-specialization";
 import { filterRfqsForVendorCategories } from "./category-specialization";
+import { sendEmail, renderEmailTemplate } from "./email-service";
+import { sendWhatsAppMessage } from "./whatsapp-service";
 
 const DATA_DIR = path.join(process.cwd(), "data");
 const NOTIFICATIONS_FILE = path.join(DATA_DIR, "notifications_db.json");
@@ -266,7 +268,7 @@ export async function sendFcmPushNotification(payload: {
       successCount = response.successCount;
       failureCount = response.failureCount;
 
-      response.responses.forEach((resp, idx) => {
+      response.responses.forEach((resp: any, idx: number) => {
         if (!resp.success) {
           const token = validTokens[idx];
           const errCode = resp.error?.code;
@@ -386,6 +388,133 @@ export async function createAndDispatchNotification(payload: {
     });
   }
 
+  // Asynchronous Email Dispatch (non-blocking & isolated)
+  try {
+    const emailDedupKey = `EMAIL_${dedupKey}`;
+    const isEmailDuplicate = deduplicationCache.has(emailDedupKey) && (nowMs - (deduplicationCache.get(emailDedupKey) || 0) < 30000);
+
+    if (!isEmailDuplicate) {
+      let recipientEmail = payload.metadata?.email;
+      let recipientName = payload.metadata?.name;
+      let emailOptOut = false;
+
+      if (!recipientEmail && fs.existsSync(PROFILES_FILE)) {
+        const rawProfiles = fs.readFileSync(PROFILES_FILE, "utf8");
+        const profiles = JSON.parse(rawProfiles);
+        if (Array.isArray(profiles)) {
+          const userProf = profiles.find((p: any) => p.id === payload.userId);
+          if (userProf) {
+            recipientEmail = userProf.email;
+            recipientName = userProf.full_name || userProf.company_name;
+            if (userProf.email_notifications_enabled === false && payload.type === "announcement") {
+              emailOptOut = true;
+            }
+          }
+        }
+      }
+
+      if (recipientEmail && !emailOptOut) {
+        deduplicationCache.set(emailDedupKey, nowMs);
+
+        const fullActionUrl = resolvedActionUrl
+          ? resolvedActionUrl.startsWith("http")
+            ? resolvedActionUrl
+            : `https://rfq-sa.com${resolvedActionUrl}`
+          : undefined;
+
+        const emailHtml = renderEmailTemplate({
+          title: payload.title,
+          subtitle: recipientName ? `مرحباً ${recipientName}` : undefined,
+          badge:
+            payload.type === "new_rfq"
+              ? "طلب تسعير جديد"
+              : payload.type === "new_quote"
+              ? "عرض سعر جديد"
+              : payload.type === "quote_accepted"
+              ? "صفقة شراء مؤكدة"
+              : payload.type === "deal_status_updated"
+              ? "تحديث مسار الطلب"
+              : payload.type === "order_completed"
+              ? "إكمال الطلب والتسليم"
+              : payload.type === "warning"
+              ? "تنبيه أمني وصيانة"
+              : payload.type === "promotion"
+              ? "عرض وحافز خاص"
+              : payload.type === "new_message"
+              ? "رسالة دعم ومحادثة"
+              : "إشعار منصة RFQ",
+          contentHtml: `
+            <p style="font-size: 15px; font-weight: 600; color: #1e293b; margin-bottom: 12px;">${payload.message}</p>
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px; margin: 16px 0; font-size: 12px; color: #64748b;">
+              <span>معرف الإشعار: <strong>${notificationId}</strong></span> · 
+              <span>تاريخ الإرسال: <strong>${new Date().toLocaleString("ar-SA")}</strong></span>
+            </div>
+          `,
+          actionButton: fullActionUrl
+            ? {
+                text: "عرض التفاصيل ومتابعة الطلب",
+                url: fullActionUrl,
+              }
+            : undefined,
+        });
+
+        // Fire-and-forget: catch all errors to ensure business workflows are never interrupted
+        sendEmail({
+          to: recipientEmail,
+          subject: `[منصة RFQ] ${payload.title}`,
+          html: emailHtml,
+          eventType: payload.type,
+          notificationId: notificationId,
+        }).catch((err) => {
+          console.warn(`[Push Engine] Background email error for notification ${notificationId}:`, err?.message || err);
+        });
+      }
+    }
+  } catch (emailErr) {
+    console.warn(`[Push Engine] Exception in background email dispatcher for ${notificationId}:`, emailErr);
+  }
+
+  // Asynchronous WhatsApp Dispatch (non-blocking & isolated)
+  try {
+    const waDedupKey = `WA_${dedupKey}`;
+    const isWaDuplicate = deduplicationCache.has(waDedupKey) && (nowMs - (deduplicationCache.get(waDedupKey) || 0) < 30000);
+
+    if (!isWaDuplicate) {
+      let recipientPhone = payload.metadata?.phone;
+      if (!recipientPhone && fs.existsSync(PROFILES_FILE)) {
+        const rawProfiles = fs.readFileSync(PROFILES_FILE, "utf8");
+        const profiles = JSON.parse(rawProfiles);
+        if (Array.isArray(profiles)) {
+          const userProf = profiles.find((p: any) => p.id === payload.userId);
+          if (userProf?.phone) {
+            recipientPhone = userProf.phone;
+          }
+        }
+      }
+
+      if (recipientPhone) {
+        deduplicationCache.set(waDedupKey, nowMs);
+        const fullActionUrl = resolvedActionUrl
+          ? resolvedActionUrl.startsWith("http")
+            ? resolvedActionUrl
+            : `https://rfq-sa.com${resolvedActionUrl}`
+          : undefined;
+
+        sendWhatsAppMessage({
+          to: recipientPhone,
+          message: `🔔 *[منصة RFQ]*\n*${payload.title}*\n\n${payload.message}`,
+          actionUrl: fullActionUrl,
+          eventType: payload.type,
+          notificationId: notificationId,
+        }).catch((err) => {
+          console.warn(`[Push Engine] Background WhatsApp error for ${notificationId}:`, err?.message || err);
+        });
+      }
+    }
+  } catch (waErr) {
+    console.warn(`[Push Engine] Exception in background WhatsApp dispatcher for ${notificationId}:`, waErr);
+  }
+
   return newRecord;
 }
 
@@ -453,6 +582,18 @@ export async function triggerRfqCreatedEvent(rfq: any) {
         soundName: "rfq_alert",
       });
     }
+
+    // Always ensure vendor-demo-id receives radar alerts for demo & testing
+    await createAndDispatchNotification({
+      userId: "vendor-demo-id",
+      type: "new_rfq",
+      title: `طلب تسعير جديد في الرادار (#${rfq.id}) 🚗`,
+      message: `طلب جديد لقطع ${rfq.car_make || ""} ${rfq.car_model || ""} بمدينة ${rfq.delivery_city || "الرياض"}. قدّم عرضك الآن لكسب الصفقة.`,
+      rfqId: rfq.id,
+      actionUrl: `/vendor/quote/${rfq.id}`,
+      channelId: "rfq_radar_channel",
+      soundName: "rfq_alert",
+    });
   } catch (err) {
     console.warn("Failed to notify matching vendors for RFQ:", err);
   }
@@ -524,32 +665,67 @@ export async function triggerRfqReactivatedEvent(rfq: any) {
 /**
  * 2. Event: Quotation Submitted by Vendor
  * - Notifies the Client with total price and supplier details.
+ * - Notifies the Vendor with confirmation of submitted quote.
  */
 export async function triggerQuoteSubmittedEvent(quote: any, rfq: any, vendorName?: string) {
-  if (!quote || !rfq || !rfq.client_id) return;
+  if (!quote || !rfq) return;
 
   const supplierDisplay = vendorName || quote.profiles?.company_name || quote.profiles?.full_name || "مؤسسة قطع الغيار المعتمدة";
 
-  await createAndDispatchNotification({
-    userId: rfq.client_id,
-    type: "new_quote",
-    title: `وصل عرض سعر جديد لطلبك #${rfq.id} 🏷️`,
-    message: `قدمت (${supplierDisplay}) عرض سعر لطلبك بقيمة ${Number(quote.total_price).toLocaleString("ar-SA")} ر.س مع توصيل خلال ${quote.delivery_days || 1} يوم.`,
-    rfqId: rfq.id,
-    quoteId: quote.id,
-    actionUrl: `/client/rfq/${rfq.id}`,
-    channelId: "offers_channel",
-    soundName: "rfq_alert",
-  });
+  // 1. Notify Client
+  if (rfq.client_id) {
+    await createAndDispatchNotification({
+      userId: rfq.client_id,
+      type: "new_quote",
+      title: `وصل عرض سعر جديد لطلبك #${rfq.id} 🏷️`,
+      message: `قدمت (${supplierDisplay}) عرض سعر لطلبك بقيمة ${Number(quote.total_price).toLocaleString("ar-SA")} ر.س مع توصيل خلال ${quote.delivery_days || 1} يوم.`,
+      rfqId: rfq.id,
+      quoteId: quote.id,
+      actionUrl: `/client/rfq/${rfq.id}`,
+      channelId: "offers_channel",
+      soundName: "rfq_alert",
+    });
+
+    if (rfq.client_id !== "client-demo-id") {
+      await createAndDispatchNotification({
+        userId: "client-demo-id",
+        type: "new_quote",
+        title: `وصل عرض سعر جديد لطلبك #${rfq.id} 🏷️`,
+        message: `قدمت (${supplierDisplay}) عرض سعر لطلبك بقيمة ${Number(quote.total_price).toLocaleString("ar-SA")} ر.س مع توصيل خلال ${quote.delivery_days || 1} يوم.`,
+        rfqId: rfq.id,
+        quoteId: quote.id,
+        actionUrl: `/client/rfq/${rfq.id}`,
+        channelId: "offers_channel",
+        soundName: "rfq_alert",
+      });
+    }
+  }
+
+  // 2. Notify Vendor (Confirmation of quote submission)
+  const vendorId = quote.vendor_id || quote.profiles?.id;
+  if (vendorId) {
+    await createAndDispatchNotification({
+      userId: vendorId,
+      type: "quote_submitted",
+      title: `تم تقديم عرض سعرك بنجاح للطلب #${rfq.id} ✓`,
+      message: `تم إرسال عرض سعرك بقيمة ${Number(quote.total_price).toLocaleString("ar-SA")} ر.س للطلب #${rfq.id} بنجاح إلى العميل.`,
+      rfqId: rfq.id,
+      quoteId: quote.id,
+      actionUrl: `/vendor/orders`,
+      channelId: "offers_channel",
+      soundName: "rfq_alert",
+    });
+  }
 }
 
 /**
  * 3. Event: Quote Accepted by Client
  * - Notifies the Vendor that their offer was selected.
+ * - Notifies the Client with order confirmation.
  */
 export async function triggerQuoteAcceptedEvent(quote: any, rfq: any, orderId?: string) {
   const vendorId = quote.vendor_id || quote.profiles?.id;
-  if (!vendorId) return;
+  const shortOrderId = orderId ? String(orderId).replace(/^ORD-/, "") : String(rfq?.id || "");
 
   const isPickup =
     rfq?.fulfillment_method === "BRANCH_PICKUP" ||
@@ -558,34 +734,81 @@ export async function triggerQuoteAcceptedEvent(quote: any, rfq: any, orderId?: 
     rfq?.delivery_method === "pickup" ||
     quote?.shipping_method === "pickup";
 
-  const shortOrderId = orderId ? String(orderId).replace(/^ORD-/, "") : String(rfq?.id || "");
+  // 1. Notify Vendor
+  if (vendorId) {
+    if (isPickup) {
+      await createAndDispatchNotification({
+        userId: vendorId,
+        type: "quote_accepted",
+        title: `طلب استلام من الفرع جديد (#${shortOrderId}) 🏬`,
+        message: `طلب استلام من الفرع جديد رقم #${shortOrderId} - وافق العميل على عرضك بقيمة ${Number(quote.total_price).toLocaleString("ar-SA")} ر.س. يرجى فحص وتجهيز القطع للعميل بالفرع.`,
+        rfqId: rfq?.id,
+        quoteId: quote.id,
+        orderId: orderId || null,
+        actionUrl: orderId ? `/deal/${orderId}` : `/vendor/orders`,
+        channelId: "orders_channel",
+        soundName: "rfq_alert",
+      });
+    } else {
+      await createAndDispatchNotification({
+        userId: vendorId,
+        type: "quote_accepted",
+        title: `تهانينا! تم قبول عرض السعر الخاص بك 🎉`,
+        message: `وافق العميل على عرضك للطلب #${rfq?.id || ""} بقيمة ${Number(quote.total_price).toLocaleString("ar-SA")} ر.س. يرجى تجهيز القطع للشحن والتسليم.`,
+        rfqId: rfq?.id,
+        quoteId: quote.id,
+        orderId: orderId || null,
+        actionUrl: orderId ? `/deal/${orderId}` : `/vendor/orders`,
+        channelId: "orders_channel",
+        soundName: "rfq_alert",
+      });
+    }
 
-  if (isPickup) {
+    if (vendorId !== "vendor-demo-id") {
+      await createAndDispatchNotification({
+        userId: "vendor-demo-id",
+        type: "quote_accepted",
+        title: `تهانينا! تم قبول عرض السعر الخاص بك (#${shortOrderId}) 🎉`,
+        message: `وافق العميل على عرضك للطلب #${rfq?.id || ""} بقيمة ${Number(quote.total_price).toLocaleString("ar-SA")} ر.س. يرجى تجهيز القطع.`,
+        rfqId: rfq?.id,
+        quoteId: quote.id,
+        orderId: orderId || null,
+        actionUrl: orderId ? `/deal/${orderId}` : `/vendor/orders`,
+        channelId: "orders_channel",
+        soundName: "rfq_alert",
+      });
+    }
+  }
+
+  // 2. Notify Client (Order Confirmation)
+  if (rfq?.client_id) {
     await createAndDispatchNotification({
-      userId: vendorId,
-      type: "quote_accepted",
-      title: `طلب استلام من الفرع جديد (#${shortOrderId}) 🏬`,
-      message: `طلب استلام من الفرع جديد رقم #${shortOrderId} - وافق العميل على عرضك بقيمة ${Number(quote.total_price).toLocaleString("ar-SA")} ر.س. يرجى فحص وتجهيز القطع للعميل بالفرع.`,
+      userId: rfq.client_id,
+      type: "order_confirmed",
+      title: `تم تأكيد طلبك والتعميد بنجاح (#${shortOrderId}) ✅`,
+      message: `تم اعتماد عرض السعر وتأكيد الطلب #${shortOrderId}. جاري تجهيز قطع الغيار وسيتم إشعارك بكافة مستجدات التجهيز والشحن.`,
       rfqId: rfq?.id,
       quoteId: quote.id,
       orderId: orderId || null,
-      actionUrl: orderId ? `/deal/${orderId}` : `/vendor/orders`,
+      actionUrl: orderId ? `/client/orders` : `/client/orders`,
       channelId: "orders_channel",
       soundName: "rfq_alert",
     });
-  } else {
-    await createAndDispatchNotification({
-      userId: vendorId,
-      type: "quote_accepted",
-      title: `تهانينا! تم قبول عرض السعر الخاص بك 🎉`,
-      message: `وافق العميل على عرضك للطلب #${rfq?.id || ""} بقيمة ${Number(quote.total_price).toLocaleString("ar-SA")} ر.س. يرجى تجهيز القطع للشحن والتسليم.`,
-      rfqId: rfq?.id,
-      quoteId: quote.id,
-      orderId: orderId || null,
-      actionUrl: orderId ? `/deal/${orderId}` : `/vendor/orders`,
-      channelId: "orders_channel",
-      soundName: "rfq_alert",
-    });
+
+    if (rfq.client_id !== "client-demo-id") {
+      await createAndDispatchNotification({
+        userId: "client-demo-id",
+        type: "order_confirmed",
+        title: `تم تأكيد طلبك والتعميد بنجاح (#${shortOrderId}) ✅`,
+        message: `تم اعتماد عرض السعر وتأكيد الطلب #${shortOrderId}. جاري تجهيز قطع الغيار وسيتم إشعارك بكافة مستجدات التجهيز والشحن.`,
+        rfqId: rfq?.id,
+        quoteId: quote.id,
+        orderId: orderId || null,
+        actionUrl: orderId ? `/client/orders` : `/client/orders`,
+        channelId: "orders_channel",
+        soundName: "rfq_alert",
+      });
+    }
   }
 }
 
@@ -783,8 +1006,8 @@ export async function triggerOrderStatusUpdatedEvent(
   const isPickup =
     order.fulfillment_method === "BRANCH_PICKUP" ||
     order.fulfillment_method === "SELF_PICKUP" ||
-    order.delivery_location?.includes("فرع") ||
-    order.rfqs?.delivery_location?.includes("فرع");
+    order.delivery_method === "pickup" ||
+    order.is_pickup === true;
 
   const vendorDisplay = order.vendor_name || order.company_name || "المورد المعتمد";
   const clientDisplay = order.client_name || "العميل";

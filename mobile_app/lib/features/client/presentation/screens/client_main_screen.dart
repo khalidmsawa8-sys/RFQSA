@@ -7,6 +7,7 @@ import 'package:rfqsa_mobile/core/utils/currency_formatter.dart';
 import 'package:rfqsa_mobile/core/api/api_client.dart';
 import 'package:rfqsa_mobile/core/api/api_endpoints.dart';
 import 'package:rfqsa_mobile/core/notifications/notification_service.dart';
+import 'package:rfqsa_mobile/core/storage/secure_storage_service.dart';
 import 'package:rfqsa_mobile/features/shared/presentation/widgets/web_app_header.dart';
 import 'package:rfqsa_mobile/features/shared/presentation/widgets/web_navigation_drawer.dart';
 import 'package:rfqsa_mobile/features/shared/presentation/widgets/web_mobile_dock.dart';
@@ -40,6 +41,7 @@ class ClientMainScreen extends StatefulWidget {
 class _ClientMainScreenState extends State<ClientMainScreen> {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   int _currentIndex = 0;
+  String _clientName = '';
   double _walletBalance = 0.0;
   double _last30Spend = 0.0;
   List<Map<String, dynamic>> _liveOrders = [];
@@ -59,6 +61,28 @@ class _ClientMainScreenState extends State<ClientMainScreen> {
   Future<void> _loadLiveDashboardData() async {
     setState(() => _isLoadingExtra = true);
     try {
+      // 0. Fetch authentic client profile & name
+      try {
+        final profile = await SecureStorageService().getUserProfile();
+        if (profile != null) {
+          final cName = profile['company_name'] ?? profile['companyName'] ?? profile['name'] ?? profile['full_name'];
+          if (cName != null && cName.toString().trim().isNotEmpty && !cName.toString().contains('شركة المشتريات الوطنية')) {
+            _clientName = cName.toString().trim();
+          }
+        }
+      } catch (_) {}
+
+      try {
+        final pRes = await ApiClient.instance.get('/v1/profile');
+        if (pRes.data != null) {
+          final p = pRes.data['profile'] ?? pRes.data['user'] ?? pRes.data;
+          final cName = p['company_name'] ?? p['companyName'] ?? p['full_name'] ?? p['name'];
+          if (cName != null && cName.toString().trim().isNotEmpty && !cName.toString().contains('شركة المشتريات الوطنية')) {
+            _clientName = cName.toString().trim();
+          }
+        }
+      } catch (_) {}
+
       // 1. Fetch real wallet balance
       try {
         final wRes = await ApiClient.instance.get(ApiEndpoints.wallet);
@@ -67,17 +91,24 @@ class _ClientMainScreenState extends State<ClientMainScreen> {
         }
       } catch (_) {}
 
-      // 2. Fetch live orders
+      // 2. Fetch live orders with robust parsing (handles List and Map payloads)
       try {
         final oRes = await ApiClient.instance.get(ApiEndpoints.orders);
+        List<Map<String, dynamic>> parsedOrders = [];
         if (oRes.data is List) {
-          _liveOrders = List<Map<String, dynamic>>.from(oRes.data);
-          if (_liveOrders.isNotEmpty) {
-            _last30Spend = _liveOrders.fold<double>(
-              0.0,
-              (sum, item) => sum + ((item['total_price'] ?? item['amount'] ?? 0) as num).toDouble(),
-            );
-          }
+          parsedOrders = List<Map<String, dynamic>>.from(oRes.data);
+        } else if (oRes.data is Map && oRes.data['orders'] is List) {
+          parsedOrders = List<Map<String, dynamic>>.from(oRes.data['orders']);
+        } else if (oRes.data is Map && oRes.data['data'] is List) {
+          parsedOrders = List<Map<String, dynamic>>.from(oRes.data['data']);
+        }
+
+        if (parsedOrders.isNotEmpty) {
+          _liveOrders = parsedOrders;
+          _last30Spend = _liveOrders.fold<double>(
+            0.0,
+            (sum, item) => sum + ((item['total_price'] ?? item['amount'] ?? 0) as num).toDouble(),
+          );
         }
       } catch (_) {}
 
@@ -174,50 +205,117 @@ class _ClientMainScreenState extends State<ClientMainScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // ══════════ 1. HEADER TITLE & NEW RFQ BUTTON (1:1 Web Match) ══════════
+          // ══════════ 1. CLIENT ULTRA HERO BANNER (Matching Vendor Luxury 1:1) ══════════
           Container(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(18),
             decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: const Color(0xFFE2E8F0)),
+              gradient: const LinearGradient(
+                colors: [Color(0xFF0A1224), Color(0xFF0F1C36), Color(0xFF0A1224)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(color: const Color(0xFF1E2D4A)),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.02),
-                  blurRadius: 6,
-                  offset: const Offset(0, 2),
+                  color: Colors.black.withOpacity(0.18),
+                  blurRadius: 16,
+                  offset: const Offset(0, 6),
                 ),
               ],
             ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'شركة المشتريات الوطنية',
-                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: Color(0xFF0F172A)),
+                Row(
+                  children: [
+                    Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        Container(
+                          width: 50,
+                          height: 50,
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFF2563EB), Color(0xFF1D4ED8)],
+                            ),
+                            borderRadius: BorderRadius.circular(16),
+                            boxShadow: [
+                              BoxShadow(
+                                color: const Color(0xFF2563EB).withOpacity(0.4),
+                                blurRadius: 10,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
+                          ),
+                          child: const Center(
+                            child: Icon(Icons.business_rounded, color: Colors.white, size: 26),
+                          ),
+                        ),
+                        Positioned(
+                          bottom: -2,
+                          right: -2,
+                          child: Container(
+                            width: 14,
+                            height: 14,
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF10B981),
+                              shape: BoxShape.circle,
+                              border: Border.all(color: const Color(0xFF0A1224), width: 2.5),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF2563EB).withOpacity(0.2),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: const Color(0xFF3B82F6).withOpacity(0.4)),
+                                ),
+                                child: const Text(
+                                  'منشأة عميل معتمدة B2B ⚡',
+                                  style: TextStyle(color: Color(0xFF60A5FA), fontSize: 9.5, fontWeight: FontWeight.w900),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            _clientName.isNotEmpty ? _clientName : 'مركز المشتريات والأسطول المعتمد',
+                            style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w900),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'المشتريات النشطة • إنفاق الفترة: ${CurrencyFormatter.format(_last30Spend)}',
+                            style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 10.5, fontWeight: FontWeight.w600),
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 2),
-                      Text(
-                        'مركز المشتريات واللوجستيات الذكي • B2B',
-                        style: const TextStyle(fontSize: 11, color: Color(0xFF64748B), fontWeight: FontWeight.bold),
-                      ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
+                const SizedBox(height: 16),
+
+                // Hero Action CTA: Create RFQ
                 ElevatedButton.icon(
                   onPressed: () => Navigator.pushNamed(context, AppRouter.clientCreateRfq),
-                  icon: const Icon(Icons.add_rounded, size: 16),
-                  label: const Text('طلب جديد', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900)),
+                  icon: const Icon(Icons.add_shopping_cart_rounded, size: 20),
+                  label: const Text('+ إنشاء طلب تسعير قطع غيار جديد ⚡', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w900)),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF2563EB),
                     foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                    elevation: 2,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    elevation: 4,
                   ),
                 ),
               ],
@@ -225,33 +323,69 @@ class _ClientMainScreenState extends State<ClientMainScreen> {
           ),
           const SizedBox(height: 14),
 
-          // ══════════ 2. 3 STATS CARDS (1:1 Web Match with colored top borders) ══════════
+          // ══════════ QUICK ACTIONS DOCK ══════════
+          Row(
+            children: [
+              _buildQuickAction(
+                title: 'طلب جديد',
+                icon: Icons.add_box_rounded,
+                color: const Color(0xFF2563EB),
+                bgColor: const Color(0xFFEFF6FF),
+                onTap: () => Navigator.pushNamed(context, AppRouter.clientCreateRfq),
+              ),
+              const SizedBox(width: 8),
+              _buildQuickAction(
+                title: 'كراج الأسطول',
+                icon: Icons.garage_rounded,
+                color: const Color(0xFF059669),
+                bgColor: const Color(0xFFECFDF5),
+                onTap: () => Navigator.pushNamed(context, AppRouter.clientGarage),
+              ),
+              const SizedBox(width: 8),
+              _buildQuickAction(
+                title: 'فواتير ZATCA',
+                icon: Icons.receipt_long_rounded,
+                color: const Color(0xFFD97706),
+                bgColor: const Color(0xFFFFFBEB),
+                onTap: () => Navigator.pushNamed(context, AppRouter.clientInvoices),
+              ),
+              const SizedBox(width: 8),
+              _buildQuickAction(
+                title: 'المحفظة',
+                icon: Icons.account_balance_wallet_rounded,
+                color: const Color(0xFF7C3AED),
+                bgColor: const Color(0xFFF5F3FF),
+                onTap: () => Navigator.pushNamed(context, AppRouter.wallet),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+
+          // ══════════ 2. 4 CLIENT METRIC TILES (2x2 Grid) ══════════
           Row(
             children: [
               Expanded(
-                child: _buildWebStatCard(
-                  title: 'طلبات نشطة',
-                  count: '$activeRfqs',
-                  trend: '+12%',
-                  subtext: 'قيد الاستلام والتجهيز',
-                  topBorderColor: const Color(0xFF2563EB),
-                  icon: Icons.inventory_2_outlined,
+                child: _buildMetricTile(
+                  label: 'الطلبات النشطة (RFQs)',
+                  value: '$activeRfqs',
+                  trend: activeRfqs > 0 ? '$activeRfqs طلبات قيد التسعير' : 'لا توجد طلبات جارية',
+                  icon: Icons.bolt_rounded,
                   iconColor: const Color(0xFF2563EB),
-                  iconBg: const Color(0xFFDBEAFE),
+                  iconBg: const Color(0xFFEFF6FF),
+                  topBorderColor: const Color(0xFF2563EB),
                   onTap: () => Navigator.pushNamed(context, AppRouter.clientOrders),
                 ),
               ),
               const SizedBox(width: 8),
               Expanded(
-                child: _buildWebStatCard(
-                  title: 'طلبات الشهر',
-                  count: '$monthOrders',
-                  trend: 'طلب',
-                  subtext: 'طلبات الفترة الحالية',
-                  topBorderColor: const Color(0xFF22C55E),
-                  icon: Icons.description_outlined,
-                  iconColor: const Color(0xFF16A34A),
-                  iconBg: const Color(0xFFDCFCE7),
+                child: _buildMetricTile(
+                  label: 'عروض الأسعار المستلمة',
+                  value: '${rfqs.fold<int>(0, (sum, r) => sum + r.quotesCount)}',
+                  trend: 'عروض جاهزة للمطابقة والاعتماد',
+                  icon: Icons.local_offer_rounded,
+                  iconColor: const Color(0xFF059669),
+                  iconBg: const Color(0xFFECFDF5),
+                  topBorderColor: const Color(0xFF059669),
                   onTap: () => Navigator.pushNamed(context, AppRouter.clientOrders),
                 ),
               ),
@@ -261,29 +395,27 @@ class _ClientMainScreenState extends State<ClientMainScreen> {
           Row(
             children: [
               Expanded(
-                child: _buildWebStatCard(
-                  title: 'طلبات منفذة',
-                  count: '$completedOrders',
-                  trend: '$completedPercent%',
-                  subtext: 'بمعدل تسليم تام اليوم',
-                  topBorderColor: const Color(0xFF10B981),
+                child: _buildMetricTile(
+                  label: 'طلبات منفذة ومكتملة',
+                  value: '$completedOrders',
+                  trend: 'معدل إنجاز وتوريد $completedPercent%',
                   icon: Icons.check_circle_outline_rounded,
-                  iconColor: const Color(0xFF059669),
+                  iconColor: const Color(0xFF10B981),
                   iconBg: const Color(0xFFD1FAE5),
+                  topBorderColor: const Color(0xFF10B981),
                   onTap: () => Navigator.pushNamed(context, AppRouter.clientOrders),
                 ),
               ),
               const SizedBox(width: 8),
               Expanded(
-                child: _buildWebStatCard(
-                  title: 'رصيد المحفظة',
-                  count: '${_walletBalance.toStringAsFixed(0)}',
-                  trend: 'ر.س',
-                  subtext: 'رصيد متاح للاستخدام',
-                  topBorderColor: const Color(0xFF7C3AED),
+                child: _buildMetricTile(
+                  label: 'رصيد المحفظة المتاح',
+                  value: '${_walletBalance.toStringAsFixed(0)} ر.س',
+                  trend: 'متاح للدفع الفوري والتجهيز',
                   icon: Icons.account_balance_wallet_outlined,
                   iconColor: const Color(0xFF7C3AED),
-                  iconBg: const Color(0xFFF3E8FF),
+                  iconBg: const Color(0xFFF5F3FF),
+                  topBorderColor: const Color(0xFF7C3AED),
                   onTap: () => Navigator.pushNamed(context, AppRouter.wallet),
                 ),
               ),
@@ -541,24 +673,79 @@ class _ClientMainScreenState extends State<ClientMainScreen> {
     );
   }
 
-  Widget _buildWebStatCard({
+  Widget _buildQuickAction({
     required String title,
-    required String count,
+    required IconData icon,
+    required Color color,
+    required Color bgColor,
+    required VoidCallback onTap,
+  }) {
+    return Expanded(
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFFE2E8F0)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.02),
+                blurRadius: 6,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Column(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: bgColor,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Center(child: Icon(icon, color: color, size: 20)),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFF1E293B),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMetricTile({
+    required String label,
+    required String value,
     required String trend,
-    required String subtext,
-    required Color topBorderColor,
     required IconData icon,
     required Color iconColor,
     required Color iconBg,
+    required Color topBorderColor,
     required VoidCallback onTap,
   }) {
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: BorderRadius.circular(20),
       child: Container(
+        padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(20),
           border: Border.all(color: const Color(0xFFE2E8F0)),
           boxShadow: [
             BoxShadow(
@@ -571,49 +758,26 @@ class _ClientMainScreenState extends State<ClientMainScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Colored Top Border (1:1 Web CSS border-t-4)
-            Container(
-              height: 4,
-              decoration: BoxDecoration(
-                color: topBorderColor,
-                borderRadius: const BorderRadius.only(
-                  topLeft: Radius.circular(16),
-                  topRight: Radius.circular(16),
+            Container(height: 3, width: 28, decoration: BoxDecoration(color: topBorderColor, borderRadius: BorderRadius.circular(2))),
+            const SizedBox(height: 10),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
+                  child: Text(label, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF64748B))),
                 ),
-              ),
+                Container(
+                  width: 32,
+                  height: 32,
+                  decoration: BoxDecoration(color: iconBg, borderRadius: BorderRadius.circular(10)),
+                  child: Center(child: Icon(icon, color: iconColor, size: 18)),
+                ),
+              ],
             ),
-            Padding(
-              padding: const EdgeInsets.all(12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(title, style: const TextStyle(fontSize: 11, color: Color(0xFF64748B), fontWeight: FontWeight.bold)),
-                      Container(
-                        width: 30,
-                        height: 30,
-                        decoration: BoxDecoration(color: iconBg, shape: BoxShape.circle),
-                        child: Center(child: Icon(icon, color: iconColor, size: 16)),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.baseline,
-                    textBaseline: TextBaseline.alphabetic,
-                    children: [
-                      Text(count, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: Color(0xFF0F172A), fontFamily: 'monospace')),
-                      const SizedBox(width: 4),
-                      Text(trend, style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w800, color: topBorderColor)),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  Text(subtext, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 9.5, color: Color(0xFF94A3B8))),
-                ],
-              ),
-            ),
+            const SizedBox(height: 4),
+            Text(value, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: Color(0xFF0F172A), fontFamily: 'monospace')),
+            const SizedBox(height: 4),
+            Text(trend, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.w700, color: iconColor)),
           ],
         ),
       ),

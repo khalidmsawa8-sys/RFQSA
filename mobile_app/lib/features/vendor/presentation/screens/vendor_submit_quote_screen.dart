@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:rfqsa_mobile/core/audio/sound_alert_service.dart';
+import 'package:rfqsa_mobile/core/config/platform_settings_service.dart';
 import 'package:rfqsa_mobile/core/notifications/notification_service.dart';
 import 'package:rfqsa_mobile/core/utils/currency_formatter.dart';
 import 'package:rfqsa_mobile/features/client/models/rfq_model.dart';
@@ -56,7 +58,7 @@ class VendorSubmitQuoteScreen extends StatefulWidget {
 
 class _VendorSubmitQuoteScreenState extends State<VendorSubmitQuoteScreen> with SingleTickerProviderStateMixin {
   final _formKey = GlobalKey<FormState>();
-  final _notesController = TextEditingController(text: 'القطع أصلية وكالة داخل الكرتون المعتمد، الضمان 6 أشهر.');
+  final _notesController = TextEditingController();
   late final List<_PartQuoteFormItem> _quoteItems;
 
   bool _isSubmitting = false;
@@ -72,15 +74,16 @@ class _VendorSubmitQuoteScreenState extends State<VendorSubmitQuoteScreen> with 
   @override
   void initState() {
     super.initState();
+    PlatformSettingsService.instance.fetchSettings().then((_) {
+      if (mounted) setState(() {});
+    });
     _quoteItems = List.generate(
       widget.rfq.items.length,
       (i) {
-        final it = widget.rfq.items[i];
-        final isCommercialReq = it.partType == 'commercial';
         return _PartQuoteFormItem(
-          initialOriginalPrice: isCommercialReq ? '' : '350',
-          initialCommercialPrice: isCommercialReq ? '280' : '',
-          initialCommercialBrand: it.partNumber != null && it.partNumber!.isNotEmpty ? 'Denso' : '',
+          initialOriginalPrice: '',
+          initialCommercialPrice: '',
+          initialCommercialBrand: '',
         );
       },
     );
@@ -879,32 +882,36 @@ class _VendorSubmitQuoteScreenState extends State<VendorSubmitQuoteScreen> with 
         children: [
           // Section Header
           Container(
-            padding: const EdgeInsets.all(14),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             decoration: const BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.vertical(top: Radius.circular(19)),
               border: Border(bottom: BorderSide(color: Color(0xFFF1F5F9))),
             ),
-            child: Row(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF2563EB),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: const Icon(Icons.receipt_long_rounded, color: Colors.white, size: 18),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                      child: Row(
                         children: [
-                          const Text(
-                            'جدول تسعير القطع المطلوبة',
-                            style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w900, color: Color(0xFF0F172A)),
+                          Container(
+                            padding: const EdgeInsets.all(7),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF2563EB),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: const Icon(Icons.receipt_long_rounded, color: Colors.white, size: 17),
+                          ),
+                          const SizedBox(width: 8),
+                          const Flexible(
+                            child: Text(
+                              'جدول تسعير القطع المطلوبة',
+                              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w900, color: Color(0xFF0F172A)),
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
                           const SizedBox(width: 6),
                           Container(
@@ -921,31 +928,33 @@ class _VendorSubmitQuoteScreenState extends State<VendorSubmitQuoteScreen> with 
                           ),
                         ],
                       ),
-                      const Text(
-                        'أدخل سعر القطعة في خانة الأصلي أو التجاري مباشرة، وسيتم اعتماد الخيار تلقائياً',
-                        style: TextStyle(fontSize: 9.5, color: Color(0xFF64748B)),
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF8FAFC),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: const Color(0xFFE2E8F0)),
                       ),
-                    ],
-                  ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.check_circle_rounded, color: Color(0xFF059669), size: 12),
+                          const SizedBox(width: 4),
+                          Text(
+                            'المسعّرة: $_pricedCount / ${widget.rfq.items.length}',
+                            style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: Color(0xFF0F172A)),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF8FAFC),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: const Color(0xFFE2E8F0)),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.check_circle_rounded, color: Color(0xFF059669), size: 12),
-                      const SizedBox(width: 4),
-                      Text(
-                        'المسعّرة: $_pricedCount / ${widget.rfq.items.length}',
-                        style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: Color(0xFF0F172A)),
-                      ),
-                    ],
-                  ),
+                const SizedBox(height: 6),
+                const Text(
+                  'أدخل سعر القطعة في خانة الأصلي أو التجاري مباشرة، وسيتم اعتماد الخيار تلقائياً',
+                  style: TextStyle(fontSize: 9.5, color: Color(0xFF64748B), height: 1.3),
                 ),
               ],
             ),
@@ -1127,6 +1136,43 @@ class _VendorSubmitQuoteScreenState extends State<VendorSubmitQuoteScreen> with 
               ),
             ],
           ),
+
+          // Client attached images thumbnail gallery
+          if (reqItem.images.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: const [
+                Icon(Icons.photo_library_rounded, size: 13, color: Color(0xFF2563EB)),
+                SizedBox(width: 4),
+                Text('صور مرفقة من العميل (انقر للتكبير 🔍):', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF2563EB))),
+              ],
+            ),
+            const SizedBox(height: 6),
+            SizedBox(
+              height: 60,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: reqItem.images.length,
+                separatorBuilder: (_, __) => const SizedBox(width: 8),
+                itemBuilder: (ctx, imgIdx) {
+                  final rawUrl = reqItem.images[imgIdx];
+                  final cleanUrl = rawUrl.startsWith('/') ? 'https://rfqsa.tech$rawUrl' : rawUrl;
+                  return GestureDetector(
+                    onTap: () => _showFullImageDialog(cleanUrl),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Container(
+                        width: 60,
+                        height: 60,
+                        color: const Color(0xFFF1F5F9),
+                        child: _renderSingleThumbnail(cleanUrl),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
           const SizedBox(height: 12),
 
           // Row 2: Original OEM Input Tier
@@ -1380,39 +1426,35 @@ class _VendorSubmitQuoteScreenState extends State<VendorSubmitQuoteScreen> with 
           ),
           const SizedBox(height: 16),
 
-          // Dual Cards: Original vs Commercial
-          Row(
+          // Dual Cards: Original vs Commercial (Stacked vertically for maximum clarity & zero text overflow)
+          Column(
             children: [
-              // Card 1: Original
-              Expanded(
-                child: _buildFinancialCard(
-                  title: 'إجمالي الأصلي (OEM)',
-                  icon: Icons.verified_user_rounded,
-                  iconColor: const Color(0xFF2563EB),
-                  isPriced: _originalSubtotal > 0,
-                  subtotal: _originalSubtotal,
-                  tax: _originalTaxAmount,
-                  totalWithTax: _originalTotalWithTax,
-                  borderColor: const Color(0xFFBFDBFE),
-                  bgColor: Colors.white,
-                  totalColor: const Color(0xFF1E3A8A),
-                ),
+              // Card 1: Original OEM
+              _buildFinancialCard(
+                title: 'إجمالي الأصلي (OEM)',
+                icon: Icons.verified_user_rounded,
+                iconColor: const Color(0xFF2563EB),
+                isPriced: _originalSubtotal > 0,
+                subtotal: _originalSubtotal,
+                tax: _originalTaxAmount,
+                totalWithTax: _originalTotalWithTax,
+                borderColor: const Color(0xFFBFDBFE),
+                bgColor: Colors.white,
+                totalColor: const Color(0xFF1E3A8A),
               ),
-              const SizedBox(width: 10),
-              // Card 2: Commercial
-              Expanded(
-                child: _buildFinancialCard(
-                  title: 'إجمالي التجاري / البديل',
-                  icon: Icons.local_offer_rounded,
-                  iconColor: const Color(0xFFD97706),
-                  isPriced: _commercialSubtotal > 0,
-                  subtotal: _commercialSubtotal,
-                  tax: _commercialTaxAmount,
-                  totalWithTax: _commercialTotalWithTax,
-                  borderColor: const Color(0xFFFDE68A),
-                  bgColor: Colors.white,
-                  totalColor: const Color(0xFF78350F),
-                ),
+              const SizedBox(height: 12),
+              // Card 2: Commercial / Alternative
+              _buildFinancialCard(
+                title: 'إجمالي التجاري / البديل',
+                icon: Icons.local_offer_rounded,
+                iconColor: const Color(0xFFD97706),
+                isPriced: _commercialSubtotal > 0,
+                subtotal: _commercialSubtotal,
+                tax: _commercialTaxAmount,
+                totalWithTax: _commercialTotalWithTax,
+                borderColor: const Color(0xFFFDE68A),
+                bgColor: Colors.white,
+                totalColor: const Color(0xFF78350F),
               ),
             ],
           ),
@@ -1507,12 +1549,24 @@ class _VendorSubmitQuoteScreenState extends State<VendorSubmitQuoteScreen> with 
     required Color bgColor,
     required Color totalColor,
   }) {
+    final vendorFeePercent = PlatformSettingsService.instance.vendorFeePercent;
+    final netPercent = (100.0 - vendorFeePercent).clamp(0.0, 100.0);
+    final commissionAmount = subtotal * (vendorFeePercent / 100.0);
+    final netAmount = subtotal - commissionAmount;
+
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: bgColor,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: borderColor, width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.02),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1523,13 +1577,13 @@ class _VendorSubmitQuoteScreenState extends State<VendorSubmitQuoteScreen> with 
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(icon, color: iconColor, size: 14),
-                  const SizedBox(width: 4),
-                  Text(title, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: Color(0xFF0F172A))),
+                  Icon(icon, color: iconColor, size: 16),
+                  const SizedBox(width: 6),
+                  Text(title, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: Color(0xFF0F172A))),
                 ],
               ),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2.5),
                 decoration: BoxDecoration(
                   color: isPriced ? const Color(0xFFECFDF5) : const Color(0xFFF1F5F9),
                   borderRadius: BorderRadius.circular(6),
@@ -1537,7 +1591,7 @@ class _VendorSubmitQuoteScreenState extends State<VendorSubmitQuoteScreen> with 
                 child: Text(
                   isPriced ? '✓ مسعّر' : 'غير مسعّر',
                   style: TextStyle(
-                    fontSize: 8.5,
+                    fontSize: 9.5,
                     fontWeight: FontWeight.bold,
                     color: isPriced ? const Color(0xFF059669) : const Color(0xFF94A3B8),
                   ),
@@ -1545,47 +1599,147 @@ class _VendorSubmitQuoteScreenState extends State<VendorSubmitQuoteScreen> with 
               ),
             ],
           ),
-          const Divider(height: 14, color: Color(0xFFF1F5F9)),
+          const Divider(height: 16, color: Color(0xFFF1F5F9)),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text('قبل الضريبة:', style: TextStyle(fontSize: 9, color: Color(0xFF64748B))),
+              const Text('قيمة القطع:', style: TextStyle(fontSize: 11, color: Color(0xFF64748B))),
               Text(
                 '${subtotal.toStringAsFixed(2)} ر.س',
-                style: const TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
+                style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
               ),
             ],
           ),
-          const SizedBox(height: 2),
+          const SizedBox(height: 4),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text('الضريبة (15%):', style: TextStyle(fontSize: 9, color: Color(0xFF64748B))),
+              Text('عمولة المنصة (${vendorFeePercent.toStringAsFixed(0)}%):', style: const TextStyle(fontSize: 11, color: Color(0xFFDC2626))),
               Text(
-                '${tax.toStringAsFixed(2)} ر.س',
-                style: const TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
+                '-${commissionAmount.toStringAsFixed(2)} ر.س',
+                style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: Color(0xFFDC2626)),
               ),
             ],
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 4),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('صافي مستحقاتك (${netPercent.toStringAsFixed(0)}%):', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF059669))),
+              Text(
+                '${netAmount.toStringAsFixed(2)} ر.س',
+                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: Color(0xFF059669)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('الضريبة (15% على القطع):', style: TextStyle(fontSize: 11, color: Color(0xFF64748B))),
+              Text(
+                '+${tax.toStringAsFixed(2)} ر.س',
+                style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
             decoration: BoxDecoration(
               color: const Color(0xFFF8FAFC),
               borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('الإجمالي (+15%):', style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.w900, color: Color(0xFF0F172A))),
+                const Text('إجمالي العرض للعميل:', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w900, color: Color(0xFF0F172A))),
                 Text(
                   CurrencyFormatter.format(totalWithTax),
-                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: totalColor),
+                  style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w900, color: totalColor),
                 ),
               ],
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _renderSingleThumbnail(String url) {
+    if (url.startsWith('data:image')) {
+      try {
+        final b64Part = url.split(',').last;
+        return Image.memory(base64Decode(b64Part), fit: BoxFit.cover);
+      } catch (_) {
+        return const Icon(Icons.broken_image_rounded, color: Color(0xFF94A3B8));
+      }
+    }
+    return Image.network(
+      url,
+      fit: BoxFit.cover,
+      errorBuilder: (_, __, ___) => const Icon(Icons.broken_image_rounded, color: Color(0xFF94A3B8)),
+      loadingBuilder: (ctx, child, progress) {
+        if (progress == null) return child;
+        return const Center(child: SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)));
+      },
+    );
+  }
+
+  void _showFullImageDialog(String url) {
+    showDialog(
+      context: context,
+      builder: (dlgCtx) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.all(12),
+        child: Stack(
+          alignment: Alignment.topRight,
+          children: [
+            InteractiveViewer(
+              panEnabled: true,
+              boundaryMargin: const EdgeInsets.all(20),
+              minScale: 0.5,
+              maxScale: 4.0,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(16),
+                child: url.startsWith('data:image')
+                    ? Image.memory(base64Decode(url.split(',').last), fit: BoxFit.contain)
+                    : Image.network(
+                        url,
+                        fit: BoxFit.contain,
+                        errorBuilder: (_, __, ___) => Container(
+                          padding: const EdgeInsets.all(24),
+                          color: Colors.white,
+                          child: const Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.broken_image_rounded, size: 48, color: Colors.red),
+                              SizedBox(height: 8),
+                              Text('تعذر تحميل الصورة بدقة كاملة'),
+                            ],
+                          ),
+                        ),
+                      ),
+              ),
+            ),
+            Positioned(
+              top: 10,
+              right: 10,
+              child: GestureDetector(
+                onTap: () => Navigator.of(dlgCtx).pop(),
+                child: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: const BoxDecoration(
+                    color: Colors.black54,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.close_rounded, color: Colors.white, size: 20),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

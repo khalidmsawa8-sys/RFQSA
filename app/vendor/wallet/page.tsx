@@ -110,10 +110,18 @@ export default function VendorWalletPage() {
   const loadWallet = useCallback(async () => {
     setLoading(true);
     try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      const vendorId = user?.id || "vendor-demo-id";
+
       // 1. Fetch live authoritative data from server API
-      const res = await fetch("/api/v1/wallet", {
+      const res = await fetch(`/api/v1/wallet?userId=${encodeURIComponent(vendorId)}&role=vendor`, {
         cache: "no-store",
         credentials: "include",
+        headers: {
+          "x-user-id": vendorId,
+        },
       });
       const data = await res.json();
 
@@ -181,10 +189,6 @@ export default function VendorWalletPage() {
       }
 
       // Fallback
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
       if (!user) {
         return;
       }

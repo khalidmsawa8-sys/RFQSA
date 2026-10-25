@@ -3,17 +3,21 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:dio/dio.dart';
 import 'package:rfqsa_mobile/core/theme/app_colors.dart';
+import 'package:rfqsa_mobile/core/routing/app_router.dart';
 import 'package:rfqsa_mobile/core/utils/currency_formatter.dart';
 import 'package:rfqsa_mobile/core/utils/id_utils.dart';
 import 'package:rfqsa_mobile/core/api/api_client.dart';
 import 'package:rfqsa_mobile/core/api/api_endpoints.dart';
+import 'package:rfqsa_mobile/core/storage/secure_storage_service.dart';
 import 'package:rfqsa_mobile/core/state_machine/order_state_machine.dart';
 import 'package:rfqsa_mobile/features/client/presentation/screens/client_order_tracking_screen.dart';
 import 'package:rfqsa_mobile/features/client/bloc/client_rfq_bloc.dart';
 import 'package:rfqsa_mobile/features/client/models/rfq_model.dart';
 import 'package:rfqsa_mobile/features/client/models/quote_model.dart';
 import 'package:rfqsa_mobile/features/client/repositories/client_repository.dart';
+import 'package:rfqsa_mobile/core/config/platform_settings_service.dart';
 
 /// Deal Room Screen for Quotes Comparison, Itemized Breakdown, Deal Acceptance & Order Tracking (1:1 Web Parity)
 class ClientDealRoomScreen extends StatefulWidget {
@@ -175,6 +179,29 @@ class _ClientDealRoomScreenState extends State<ClientDealRoomScreen> {
     }
   }
 
+  Future<void> _openWhatsAppCourier(String phone) async {
+    final cleanPhone = phone.replaceAll(RegExp(r'\D'), '');
+    String saudiPhone = cleanPhone;
+    if (saudiPhone.startsWith('05')) {
+      saudiPhone = '966${saudiPhone.substring(1)}';
+    } else if (saudiPhone.startsWith('5')) {
+      saudiPhone = '966$saudiPhone';
+    } else if (!saudiPhone.startsWith('966')) {
+      saudiPhone = '966501234567';
+    }
+    final rawId = _order?['id']?.toString() ?? widget.rfqId;
+    final shortId = IdUtils.safeShortId(rawId, prefix: 'ORD-');
+    final msg = Uri.encodeComponent('مرحباً مندوب التوصيل، أتواصل معك بخصوص الطلب #$shortId عبر تطبيق رفق.');
+    final uri = Uri.parse('https://wa.me/$saudiPhone?text=$msg');
+    try {
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } else {
+        await launchUrl(uri);
+      }
+    } catch (_) {}
+  }
+
   Future<void> _handleReactivate() async {
     if (_rfq == null) return;
     setState(() => _isReactivating = true);
@@ -231,9 +258,9 @@ class _ClientDealRoomScreenState extends State<ClientDealRoomScreen> {
       builder: (ctx) => _QuoteInspectionModal(
         quote: q,
         rfq: _rfq,
-        onAcceptOrder: (acceptedQuote, selectedItems, finalTotal, couponCode) async {
+        onAcceptOrder: (acceptedQuote, selectedItems, finalTotal, couponCode, subtotal, platformFee, taxAmount, deliveryFee) async {
           Navigator.pop(ctx);
-          await _processOrderAcceptance(acceptedQuote, selectedItems, finalTotal, couponCode);
+          await _processOrderAcceptance(acceptedQuote, selectedItems, finalTotal, couponCode, subtotal, platformFee, taxAmount, deliveryFee);
         },
       ),
     );
@@ -243,26 +270,126 @@ class _ClientDealRoomScreenState extends State<ClientDealRoomScreen> {
     QuoteModel q,
     List<Map<String, dynamic>> selectedItems,
     double finalTotal,
-    String? couponCode,
-  ) async {
+    String? couponCode, [
+    double? explicitSubtotal,
+    double? explicitPlatformFee,
+    double? explicitTaxAmount,
+    double? explicitDeliveryFee,
+  ]) async {
     setState(() => _isLoading = true);
     final rawNum = widget.rfqId.replaceAll(RegExp(r'\D+'), '');
     final orderId = 'ORD-$rawNum';
     final dealId = 'DEAL-$rawNum';
 
+    final storageUserId = await SecureStorageService().getUserId();
+    final realClientId = (storageUserId != null && storageUserId.isNotEmpty && storageUserId != 'client-demo-id')
+        ? storageUserId
+        : ((_rfq?.clientId != null && _rfq!.clientId.isNotEmpty && _rfq!.clientId != 'client-demo-id')
+            ? _rfq!.clientId
+            : (storageUserId ?? 'client-demo-id'));
+
+    // ── Pre-check Client Wallet Balance ──
+    double availableBalance = 0.0;
     try {
+      final wRes = await ApiClient.instance.get(ApiEndpoints.wallet);
+      if (wRes.data != null && wRes.data['balance'] != null) {
+        availableBalance = (wRes.data['balance'] as num).toDouble();
+      }
+    } catch (_) {}
+
+    if (availableBalance < finalTotal) {
+      setState(() => _isLoading = false);
+      if (!mounted) return;
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: Row(
+            children: const [
+              Icon(Icons.account_balance_wallet_rounded, color: Color(0xFFDC2626), size: 24),
+              SizedBox(width: 8),
+              Text('رصيد المحفظة غير كافٍ', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'عذراً، رصيد محفظتك الحالي لا يكفي لسداد قيمة هذا الطلب.\n\n'
+                '• الرصيد المتاح: ${CurrencyFormatter.format(availableBalance)}\n'
+                '• إجمالي المطلوب: ${CurrencyFormatter.format(finalTotal)}\n'
+                '• العجز: ${CurrencyFormatter.format(finalTotal - availableBalance)}\n\n'
+                'يرجى شحن محفظتك أولاً لإتمام الصفقة وإرسال الطلب للمورد.',
+                style: const TextStyle(fontSize: 12.5, color: Color(0xFF334155), height: 1.5),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('إلغاء', style: TextStyle(color: Color(0xFF64748B))),
+            ),
+            ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF2563EB),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              onPressed: () {
+                Navigator.pop(ctx);
+                Navigator.pushNamed(context, AppRouter.wallet);
+              },
+              icon: const Icon(Icons.add_card_rounded, size: 16),
+              label: const Text('شحن المحفظة الآن'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    // Strict fulfillment & delivery resolution
+    final dMethod = (_rfq?.deliveryMethod ?? '').toLowerCase();
+    final fMethod = (_rfq?.fulfillmentMethod ?? '').toLowerCase();
+    final isExplicitDelivery = (dMethod == 'delivery' || dMethod == 'shipping' || fMethod == 'delivery' || _rfq?.isPickup == false);
+    final isPickupOrder = isExplicitDelivery
+        ? false
+        : (_rfq?.isPickup == true || dMethod == 'pickup' || fMethod == 'pickup' || fMethod == 'self_pickup' || fMethod == 'branch_pickup');
+
+    final effectiveDeliveryFee = isPickupOrder ? 0.0 : (q.deliveryCost > 0 ? q.deliveryCost : 25.0);
+
+    try {
+      final sub = explicitSubtotal ?? finalTotal;
+      final pFee = explicitPlatformFee ?? 0.0;
+      final tAmt = explicitTaxAmount ?? 0.0;
+      final dFee = explicitDeliveryFee ?? effectiveDeliveryFee;
+
       // 1. Create Order via authoritative API
       final orderPayload = {
         'id': orderId,
         'rfq_id': _rfq?.id ?? widget.rfqId,
         'quote_id': q.id,
         'vendor_id': q.vendorId,
-        'client_id': 'client-demo-id',
+        'client_id': realClientId,
         'status': 'confirmed',
+        'payment_method': 'wallet',
+        'payment_source': 'wallet',
         'total_price': finalTotal,
+        'total_amount': finalTotal,
+        'subtotal': sub,
+        'parts_subtotal': sub,
+        'client_platform_fee': pFee,
+        'platform_commission': pFee,
+        'tax_amount': tAmt,
         'items': selectedItems,
         'deal_id': dealId,
         'coupon_code': couponCode,
+        'is_pickup': isPickupOrder,
+        'delivery_method': isPickupOrder ? 'pickup' : 'delivery',
+        'fulfillment_method': isPickupOrder ? 'SELF_PICKUP' : 'DELIVERY',
+        'delivery_type': isPickupOrder ? 'pickup' : 'delivery',
+        'delivery_fee': dFee,
       };
 
       await ApiClient.instance.post(
@@ -329,7 +456,7 @@ class _ClientDealRoomScreenState extends State<ClientDealRoomScreen> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'رقم أمر الشراء: #$orderId\nتم نقل الطلب إلى "الطلبات النشطة" وتعيين مندوب التوصيل.',
+                    'رقم أمر الشراء: #$orderId\nتم خصم القيمة من المحفظة ونقل الطلب إلى التجهيز والشحن.',
                     textAlign: TextAlign.center,
                     style: const TextStyle(fontSize: 12, color: Color(0xFF64748B), height: 1.4),
                   ),
@@ -366,10 +493,17 @@ class _ClientDealRoomScreenState extends State<ClientDealRoomScreen> {
       }
     } catch (e) {
       if (mounted) {
+        String errMsg = 'تعذر تأكيد الطلب، يرجى المحاولة لاحقاً';
+        if (e is DioException && e.response?.data != null) {
+          errMsg = e.response?.data['error']?.toString() ?? errMsg;
+        } else {
+          errMsg = e.toString();
+        }
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('حدث خطأ أثناء تأكيد العرض: $e'),
-            backgroundColor: Colors.red,
+            content: Text(errMsg),
+            backgroundColor: const Color(0xFFDC2626),
+            behavior: SnackBarBehavior.floating,
           ),
         );
       }
@@ -901,7 +1035,7 @@ class _ClientDealRoomScreenState extends State<ClientDealRoomScreen> {
         ),
         const SizedBox(height: 14),
 
-        // Courier Contact Card
+        // Courier Contact Card (Issue 3: Direct WhatsApp button for Courier)
         Container(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
@@ -909,22 +1043,46 @@ class _ClientDealRoomScreenState extends State<ClientDealRoomScreen> {
             borderRadius: BorderRadius.circular(14),
             border: Border.all(color: const Color(0xFFE2E8F0)),
           ),
-          child: Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Icon(Icons.delivery_dining_rounded, color: Color(0xFF2563EB), size: 28),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(courierName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                    Text(courierPhone, style: const TextStyle(fontSize: 11, color: Color(0xFF64748B))),
-                  ],
-                ),
+              Row(
+                children: [
+                  const Icon(Icons.delivery_dining_rounded, color: Color(0xFF2563EB), size: 28),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(courierName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                        Text(courierPhone, style: const TextStyle(fontSize: 11, color: Color(0xFF64748B))),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => _makeCall(courierPhone),
+                    icon: const Icon(Icons.phone_rounded, color: Color(0xFF2563EB)),
+                  ),
+                ],
               ),
-              IconButton(
-                onPressed: () => _makeCall(courierPhone),
-                icon: const Icon(Icons.phone_rounded, color: Color(0xFF059669)),
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () => _openWhatsAppCourier(courierPhone),
+                  icon: const Icon(Icons.chat_bubble_rounded, size: 16, color: Colors.white),
+                  label: const Text(
+                    'تواصل واتساب مع مندوب التوصيل 💬',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF25D366), // WhatsApp Green
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    elevation: 1,
+                  ),
+                ),
               ),
             ],
           ),
@@ -1020,7 +1178,16 @@ class _QuoteInspectionItem {
 class _QuoteInspectionModal extends StatefulWidget {
   final QuoteModel quote;
   final RfqModel? rfq;
-  final Function(QuoteModel acceptedQuote, List<Map<String, dynamic>> selectedItems, double finalTotal, String? couponCode) onAcceptOrder;
+  final Function(
+    QuoteModel acceptedQuote,
+    List<Map<String, dynamic>> selectedItems,
+    double finalTotal,
+    String? couponCode,
+    double subtotal,
+    double platformFee,
+    double taxAmount,
+    double deliveryFee,
+  ) onAcceptOrder;
 
   const _QuoteInspectionModal({
     required this.quote,
@@ -1131,8 +1298,21 @@ class _QuoteInspectionModalState extends State<_QuoteInspectionModal> {
     _items = parsed;
   }
 
-  // Delivery fee from quote or default delivery fleet fee
+  bool get _isPickup {
+    final dMethod = (widget.rfq?.deliveryMethod ?? '').toLowerCase();
+    final fMethod = (widget.rfq?.fulfillmentMethod ?? '').toLowerCase();
+    if (dMethod == 'delivery' || dMethod == 'shipping' || fMethod == 'delivery' || widget.rfq?.isPickup == false) {
+      return false;
+    }
+    if (dMethod == 'pickup' || fMethod == 'pickup' || fMethod == 'self_pickup' || fMethod == 'branch_pickup') {
+      return true;
+    }
+    return widget.rfq?.isPickup == true;
+  }
+
+  // Delivery fee from quote or default delivery fleet fee (0.0 if Branch Pickup)
   double get _deliveryFee {
+    if (_isPickup) return 0.0;
     if (widget.quote.deliveryCost > 0) return widget.quote.deliveryCost;
     return 25.0; // Standard platform delivery fleet base rate
   }
@@ -1173,7 +1353,7 @@ class _QuoteInspectionModalState extends State<_QuoteInspectionModal> {
   }
 
   double get _deliveryDiscount {
-    if (_appliedCoupon == null || _appliedCoupon!['target'] != 'delivery') return 0.0;
+    if (_isPickup || _appliedCoupon == null || _appliedCoupon!['target'] != 'delivery') return 0.0;
     final val = double.tryParse(_appliedCoupon!['value']?.toString() ?? '0') ?? 0.0;
     final deliv = _deliveryFee;
     if (_appliedCoupon!['type'] == 'percent') {
@@ -1184,9 +1364,13 @@ class _QuoteInspectionModalState extends State<_QuoteInspectionModal> {
   }
 
   double get _subtotalAfterDiscount => (_partsSubtotal - _subtotalDiscount).clamp(0.0, double.infinity);
-  double get _taxAmount => _subtotalAfterDiscount * 0.15;
-  double get _effectiveDelivery => (_deliveryFee - _deliveryDiscount).clamp(0.0, double.infinity);
-  double get _grandTotal => _subtotalAfterDiscount + _taxAmount + _effectiveDelivery;
+  double get _clientCommissionRate => PlatformSettingsService.instance.clientFeePercent / 100.0;
+  double get _clientCommission => ((_subtotalAfterDiscount * _clientCommissionRate) * 100).round() / 100;
+  double get _effectiveDelivery => _isPickup ? 0.0 : (_deliveryFee - _deliveryDiscount).clamp(0.0, double.infinity);
+  double get _subtotalBeforeTax => ((_subtotalAfterDiscount + _clientCommission + _effectiveDelivery) * 100).round() / 100;
+  double get _taxableBase => _subtotalBeforeTax;
+  double get _taxAmount => ((_subtotalBeforeTax * (PlatformSettingsService.instance.vatPercent / 100.0)) * 100).round() / 100;
+  double get _grandTotal => ((_subtotalBeforeTax + _taxAmount) * 100).round() / 100;
 
   Future<void> _applyCoupon() async {
     final raw = _couponController.text.trim().toUpperCase();
@@ -1346,6 +1530,10 @@ class _QuoteInspectionModalState extends State<_QuoteInspectionModal> {
       selectedPayload,
       _grandTotal,
       _appliedCoupon?['code']?.toString(),
+      _subtotalAfterDiscount,
+      _clientCommission,
+      _taxAmount,
+      _effectiveDelivery,
     );
   }
 
@@ -1636,7 +1824,7 @@ class _QuoteInspectionModalState extends State<_QuoteInspectionModal> {
                                                 'رقم القطعة: ${it.partNumber}',
                                                 style: const TextStyle(fontSize: 10, fontFamily: 'monospace', color: Color(0xFF64748B)),
                                               ),
-                                            if (it.commercialBrand != null && it.commercialBrand!.isNotEmpty) ...[
+                                            if (it.commercialBrand != null && it.commercialBrand!.isNotEmpty && it.chosenType == 'commercial') ...[
                                               const SizedBox(height: 3),
                                               Container(
                                                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -2041,63 +2229,114 @@ class _QuoteInspectionModalState extends State<_QuoteInspectionModal> {
                             ),
                           ],
 
+                          // Client Commission (5%)
                           const SizedBox(height: 6),
-                          // 15% VAT
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              const Text('ضريبة القيمة المضافة (15%):', style: TextStyle(fontSize: 11.5, color: Color(0xFF93C5FD))),
-                              Text(CurrencyFormatter.format(_taxAmount), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF93C5FD))),
-                            ],
-                          ),
-
-                          const SizedBox(height: 6),
-                          // Delivery Fee (Set by admin/fleet)
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              const Text('رسوم التوصيل (أسطول رفق):', style: TextStyle(fontSize: 11.5, color: Color(0xFF6EE7B7))),
                               Row(
                                 children: [
-                                  if (_deliveryDiscount > 0) ...[
-                                    Text(
-                                      CurrencyFormatter.format(_deliveryFee),
-                                      style: const TextStyle(fontSize: 11, color: Color(0xFF64748B), decoration: TextDecoration.lineThrough),
-                                    ),
-                                    const SizedBox(width: 6),
-                                  ],
-                                  Text(
-                                    _effectiveDelivery == 0 && _deliveryDiscount > 0
-                                        ? 'مجاني بالكامل 🚚'
-                                        : CurrencyFormatter.format(_effectiveDelivery),
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w900,
-                                      color: _deliveryDiscount > 0 ? const Color(0xFF34D399) : Colors.white,
-                                    ),
+                                  Text('رسوم الخدمة والمنصة (${PlatformSettingsService.instance.clientFeePercent.toStringAsFixed(0)}%):', style: const TextStyle(fontSize: 11.5, color: Color(0xFFFBBF24))),
+                                  const SizedBox(width: 4),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                                    decoration: BoxDecoration(color: const Color(0xFFF59E0B).withOpacity(0.2), borderRadius: BorderRadius.circular(4)),
+                                    child: const Text('عمولة العميل', style: TextStyle(fontSize: 9, color: Color(0xFFFBBF24), fontWeight: FontWeight.bold)),
                                   ),
                                 ],
                               ),
+                              Text(CurrencyFormatter.format(_clientCommission), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFFFBBF24))),
                             ],
                           ),
 
-                          // Delivery Discount Line (if applied)
-                          if (_deliveryDiscount > 0) ...[
-                            const SizedBox(height: 6),
+                          // Delivery Fee or Branch Pickup
+                          const SizedBox(height: 6),
+                          if (_isPickup) ...[
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
                                 Row(
                                   children: [
-                                    const Icon(Icons.local_shipping_outlined, color: Color(0xFF60A5FA), size: 14),
+                                    const Icon(Icons.storefront_rounded, color: Color(0xFF38BDF8), size: 14),
                                     const SizedBox(width: 4),
-                                    Text('خصم كود الشحن (${_appliedCoupon?['code']}):', style: const TextStyle(fontSize: 11.5, color: Color(0xFF60A5FA), fontWeight: FontWeight.bold)),
+                                    const Text('طريقة الاستلام:', style: TextStyle(fontSize: 11.5, color: Color(0xFF38BDF8))),
                                   ],
                                 ),
-                                Text('- ${CurrencyFormatter.format(_deliveryDiscount)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: Color(0xFF60A5FA))),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(color: const Color(0xFF0284C7).withOpacity(0.2), borderRadius: BorderRadius.circular(6)),
+                                  child: const Text('استلام من الفرع (مجاناً 🏬)', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF38BDF8))),
+                                ),
                               ],
                             ),
+                          ] else ...[
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text('رسوم التوصيل (أسطول رفق):', style: TextStyle(fontSize: 11.5, color: Color(0xFF6EE7B7))),
+                                Row(
+                                  children: [
+                                    if (_deliveryDiscount > 0) ...[
+                                      Text(
+                                        CurrencyFormatter.format(_deliveryFee),
+                                        style: const TextStyle(fontSize: 11, color: Color(0xFF64748B), decoration: TextDecoration.lineThrough),
+                                      ),
+                                      const SizedBox(width: 6),
+                                    ],
+                                    Text(
+                                      _effectiveDelivery == 0 && _deliveryDiscount > 0
+                                          ? 'مجاني بالكامل 🚚'
+                                          : CurrencyFormatter.format(_effectiveDelivery),
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w900,
+                                        color: _deliveryDiscount > 0 ? const Color(0xFF34D399) : Colors.white,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+
+                            // Delivery Discount Line (if applied)
+                            if (_deliveryDiscount > 0) ...[
+                              const SizedBox(height: 6),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Row(
+                                    children: [
+                                      const Icon(Icons.local_shipping_outlined, color: Color(0xFF60A5FA), size: 14),
+                                      const SizedBox(width: 4),
+                                      Text('خصم كود الشحن (${_appliedCoupon?['code']}):', style: const TextStyle(fontSize: 11.5, color: Color(0xFF60A5FA), fontWeight: FontWeight.bold)),
+                                    ],
+                                  ),
+                                  Text('- ${CurrencyFormatter.format(_deliveryDiscount)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: Color(0xFF60A5FA))),
+                                ],
+                              ),
+                            ],
                           ],
+
+                          const SizedBox(height: 6),
+                          // Subtotal Before Tax
+                          const SizedBox(height: 6),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text('الإجمالي قبل الضريبة:', style: TextStyle(fontSize: 11.5, color: Color(0xFFE2E8F0), fontWeight: FontWeight.bold)),
+                              Text(CurrencyFormatter.format(_subtotalBeforeTax), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white)),
+                            ],
+                          ),
+
+                          const SizedBox(height: 6),
+                          // 15% VAT
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text('ضريبة القيمة المضافة (${PlatformSettingsService.instance.vatPercent.toStringAsFixed(0)}%):', style: const TextStyle(fontSize: 11.5, color: Color(0xFF93C5FD))),
+                              Text(CurrencyFormatter.format(_taxAmount), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF93C5FD))),
+                            ],
+                          ),
 
                           const SizedBox(height: 12),
                           const Divider(height: 1, color: Color(0xFF1E293B)),

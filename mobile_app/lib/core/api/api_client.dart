@@ -103,13 +103,18 @@ class ApiClient {
     if (!forceRefresh && _cache.containsKey(cacheKey)) {
       final entry = _cache[cacheKey]!;
       if (!entry.isExpired) {
-        return ApiResponse.fromJson(
-          entry.data is Map<String, dynamic>
-              ? entry.data
-              : {'data': entry.data, 'success': true},
-          fromJson,
-          statusCode: entry.statusCode,
-        );
+        try {
+          final cachedResponse = ApiResponse.fromJson(
+            entry.data is Map<String, dynamic>
+                ? entry.data
+                : (entry.data is Map ? Map<String, dynamic>.from(entry.data) : {'data': entry.data, 'success': true}),
+            fromJson,
+            statusCode: entry.statusCode,
+          );
+          if (cachedResponse.success) {
+            return cachedResponse;
+          }
+        } catch (_) {}
       }
     }
 
@@ -121,32 +126,41 @@ class ApiClient {
         cancelToken: cancelToken,
       );
 
-      // Store in memory cache
-      _cache[cacheKey] = _CacheEntry(
-        data: response.data,
-        statusCode: response.statusCode,
-        timestamp: DateTime.now(),
-        ttl: cacheTtl,
-      );
-
-      return ApiResponse.fromJson(
+      final apiResponse = ApiResponse.fromJson(
         response.data is Map<String, dynamic>
             ? response.data
-            : {'data': response.data, 'success': true},
+            : (response.data is Map ? Map<String, dynamic>.from(response.data) : {'data': response.data, 'success': true}),
         fromJson,
         statusCode: response.statusCode,
       );
+
+      // Only store in memory cache if successfully parsed
+      if (apiResponse.success) {
+        _cache[cacheKey] = _CacheEntry(
+          data: response.data,
+          statusCode: response.statusCode,
+          timestamp: DateTime.now(),
+          ttl: cacheTtl,
+        );
+      }
+
+      return apiResponse;
     } on DioException catch (e) {
       // Fallback: If network failed or timed out but we have a cached copy, use it!
       if (_cache.containsKey(cacheKey)) {
         final entry = _cache[cacheKey]!;
-        return ApiResponse.fromJson(
-          entry.data is Map<String, dynamic>
-              ? entry.data
-              : {'data': entry.data, 'success': true},
-          fromJson,
-          statusCode: entry.statusCode,
-        );
+        try {
+          final cachedResponse = ApiResponse.fromJson(
+            entry.data is Map<String, dynamic>
+                ? entry.data
+                : (entry.data is Map ? Map<String, dynamic>.from(entry.data) : {'data': entry.data, 'success': true}),
+            fromJson,
+            statusCode: entry.statusCode,
+          );
+          if (cachedResponse.success) {
+            return cachedResponse;
+          }
+        } catch (_) {}
       }
 
       return ApiResponse.failure(
@@ -154,16 +168,6 @@ class ApiClient {
         statusCode: e.response?.statusCode,
       );
     } catch (e) {
-      if (_cache.containsKey(cacheKey)) {
-        final entry = _cache[cacheKey]!;
-        return ApiResponse.fromJson(
-          entry.data is Map<String, dynamic>
-              ? entry.data
-              : {'data': entry.data, 'success': true},
-          fromJson,
-          statusCode: entry.statusCode,
-        );
-      }
       return ApiResponse.failure(error: e.toString());
     }
   }

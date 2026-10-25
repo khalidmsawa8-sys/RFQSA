@@ -132,8 +132,27 @@ class _MyGarageScreenState extends State<MyGarageScreen> {
                   );
 
                   Navigator.pop(ctx);
-                  await widget.clientRepository.addVehicle(newV);
-                  _loadVehicles();
+                  final addRes = await widget.clientRepository.addVehicle(newV);
+                  if (mounted) {
+                    if (addRes.success && addRes.data != null) {
+                      setState(() {
+                        _vehicles.removeWhere((v) => v.plateNumber == newV.plateNumber);
+                        _vehicles.insert(0, addRes.data!);
+                      });
+                    } else {
+                      setState(() {
+                        _vehicles.insert(0, newV);
+                      });
+                    }
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        backgroundColor: Color(0xFF059669),
+                        behavior: SnackBarBehavior.floating,
+                        content: Text('تمت إضافة المركبة إلى كراج أسطولك بنجاح ✓'),
+                      ),
+                    );
+                  }
+                  await _loadVehicles();
                 },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.primary,

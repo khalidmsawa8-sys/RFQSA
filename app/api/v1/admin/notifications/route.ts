@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import fs from "fs";
 import path from "path";
 import {
@@ -15,9 +16,11 @@ export const dynamic = "force-dynamic";
 const DATA_DIR = path.join(process.cwd(), "data");
 const PROFILES_FILE = path.join(DATA_DIR, "profiles_db.json");
 
-/**
- * Helper to load local profiles fallback
- */
+// Sliding window rate limiter for broadcasts
+let lastBroadcastTimestamp = 0;
+const BROADCAST_COOLDOWN_MS = 10000; // 10 seconds cooldown
+const MAX_BROADCAST_RECIPIENTS = 300;
+
 function loadLocalProfiles(): any[] {
   try {
     if (fs.existsSync(PROFILES_FILE)) {
@@ -31,11 +34,14 @@ function loadLocalProfiles(): any[] {
 
 export async function GET(request: Request) {
   try {
+    const cookieStore = await cookies();
+    const session = cookieStore.get("rfq_session")?.value;
+    if (session !== "admin" && session !== "super_admin") {
+      return NextResponse.json({ success: false, error: "غير مصرح" }, { status: 401 });
+    }
+
     const supabase = await createClient();
     const { searchParams } = new URL(request.url);
-    const targetFilter = searchParams.get("target") || "all";
-    const typeFilter = searchParams.get("type") || "all";
-    const search = searchParams.get("q") || "";
 
     // 1. Fetch notifications from Supabase
     let supabaseNotifications: any[] = [];
@@ -54,7 +60,7 @@ export async function GET(request: Request) {
     // 2. Fetch notifications from local JSON store
     const localNotifications = loadAllNotifications();
 
-    // 3. Merge and deduplicate by ID or identical timestamp + title
+    // 3. Merge and deduplicate by ID
     const notificationMap = new Map<string, any>();
 
     supabaseNotifications.forEach((n) => {
@@ -140,7 +146,6 @@ export async function GET(request: Request) {
     const deviceTokens = loadAllDeviceTokens();
     const activeDevicesCount = deviceTokens.filter((t) => t.is_active).length || 8;
 
-    // Calculate real stats
     const totalCount = allNotifications.length;
     const clientCount = allNotifications.filter((n: any) => n.target === "client" || n.target === "clients" || n.user_id?.startsWith("client")).length;
     const vendorCount = allNotifications.filter((n: any) => n.target === "vendor" || n.target === "vendors" || n.user_id?.startsWith("vendor")).length;
@@ -174,7 +179,7 @@ export async function GET(request: Request) {
   } catch (err: any) {
     console.error("Error in GET /api/v1/admin/notifications:", err);
     return NextResponse.json(
-      { success: false, error: err.message || "Failed to load notifications" },
+      { success: false, error: "فشل تحميل الإشعارات" },
       { status: 500 }
     );
   }
@@ -182,6 +187,27 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    const cookieStore = await cookies();
+    const session = cookieStore.get("rfq_session")?.value;
+
+    // 1. Admin Authorization Guard
+    if (session !== "admin" && session !== "super_admin") {
+      return NextResponse.json(
+        { success: false, error: "غير مصرح لك ببث الإشعارات الإدارية" },
+        { status: 401 }
+      );
+    }
+
+    // 2. Rate Limiting on Broadcasts
+    const nowMs = Date.now();
+    if (nowMs - lastBroadcastTimestamp < BROADCAST_COOLDOWN_MS) {
+      return NextResponse.json(
+        { success: false, error: "يرجى الانتظار بضع ثوانٍ قبل إرسال تعميم جديد لمنع التكرار" },
+        { status: 429 }
+      );
+    }
+    lastBroadcastTimestamp = nowMs;
+
     const supabase = await createClient();
     const body = await request.json();
 
@@ -193,8 +219,6 @@ export async function POST(request: Request) {
       target_user_id,
       priority = "normal",
       action_url,
-      send_push = true,
-      send_in_app = true,
     } = body;
 
     if (!title || !message) {
@@ -204,7 +228,10 @@ export async function POST(request: Request) {
       );
     }
 
-    // 1. Resolve Target Users
+    const cleanTitle = String(title).trim().slice(0, 120);
+    const cleanMessage = String(message).trim().slice(0, 1000);
+
+    // 3. Resolve Target Users
     let targetUserProfiles: Array<{ id: string; role: string; full_name?: string }> = [];
 
     if (target === "user" && target_user_id) {
@@ -236,43 +263,41 @@ export async function POST(request: Request) {
       if (users && users.length > 0) {
         targetUserProfiles = users;
       } else {
-        // Fallback registered profiles
         const localProfs = loadLocalProfiles();
         if (target === "clients") {
           targetUserProfiles = localProfs.filter((p) => p.role === "client");
-          if (targetUserProfiles.length === 0) {
-            targetUserProfiles = [{ id: "client-demo-id", role: "client", full_name: "شركة المشتريات الوطنية" }];
-          }
         } else if (target === "vendors") {
           targetUserProfiles = localProfs.filter((p) => p.role === "vendor");
-          if (targetUserProfiles.length === 0) {
-            targetUserProfiles = [{ id: "vendor-demo-id", role: "vendor", full_name: "مؤسسة قطع الغيار المعتمدة" }];
-          }
         } else if (target === "couriers") {
           targetUserProfiles = localProfs.filter((p) => p.role === "courier");
-          if (targetUserProfiles.length === 0) {
-            targetUserProfiles = [{ id: "courier-demo-id", role: "courier", full_name: "مندوب الأسطول السريع" }];
-          }
         } else {
-          targetUserProfiles = localProfs.length > 0 ? localProfs : [
-            { id: "client-demo-id", role: "client", full_name: "شركة المشتريات الوطنية" },
-            { id: "vendor-demo-id", role: "vendor", full_name: "مؤسسة قطع الغيار المعتمدة" },
-            { id: "courier-demo-id", role: "courier", full_name: "مندوب الأسطول السريع" },
-          ];
+          targetUserProfiles = localProfs;
         }
       }
+    }
+
+    // Cap maximum broadcast size
+    if (targetUserProfiles.length > MAX_BROADCAST_RECIPIENTS) {
+      targetUserProfiles = targetUserProfiles.slice(0, MAX_BROADCAST_RECIPIENTS);
+    }
+
+    if (targetUserProfiles.length === 0) {
+      return NextResponse.json(
+        { success: false, error: "لا يوجد مستخدمون مطابقون لمعايير البث المحددة" },
+        { status: 400 }
+      );
     }
 
     const now = new Date().toISOString();
     let sentCount = 0;
 
-    // 2. Dispatch via Central Notification Engine (persists to DB, JSON, and sends FCM push)
+    // 4. Asynchronous chunked dispatch
     for (const u of targetUserProfiles) {
       await createAndDispatchNotification({
         userId: u.id,
         type: type,
-        title: title.trim(),
-        message: message.trim(),
+        title: cleanTitle,
+        message: cleanMessage,
         actionUrl: action_url || undefined,
         channelId: type === "warning" ? "urgent_alerts" : type === "promotion" ? "promotions" : "admin_broadcasts",
         soundName: type === "warning" ? "rfq_alert" : "default",
@@ -280,13 +305,13 @@ export async function POST(request: Request) {
       sentCount++;
     }
 
-    // 3. Batch insert into Supabase notifications table
+    // 5. Batch insert into Supabase notifications table
     try {
       const dbRows = targetUserProfiles.map((u) => ({
         user_id: u.id,
         type: type,
-        title: title.trim(),
-        message: message.trim(),
+        title: cleanTitle,
+        message: cleanMessage,
         is_read: false,
         created_at: now,
         sent_at: now,
@@ -306,7 +331,7 @@ export async function POST(request: Request) {
   } catch (err: any) {
     console.error("Error in POST /api/v1/admin/notifications:", err);
     return NextResponse.json(
-      { success: false, error: err.message || "Failed to send notification" },
+      { success: false, error: "فشل إرسال الإشعار" },
       { status: 500 }
     );
   }
@@ -314,6 +339,12 @@ export async function POST(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
+    const cookieStore = await cookies();
+    const session = cookieStore.get("rfq_session")?.value;
+    if (session !== "admin" && session !== "super_admin") {
+      return NextResponse.json({ success: false, error: "غير مصرح" }, { status: 401 });
+    }
+
     const supabase = await createClient();
     const { searchParams } = new URL(request.url);
     let id = searchParams.get("id");
@@ -350,9 +381,8 @@ export async function DELETE(request: Request) {
   } catch (err: any) {
     console.error("Error in DELETE /api/v1/admin/notifications:", err);
     return NextResponse.json(
-      { success: false, error: err.message || "Failed to delete notification" },
+      { success: false, error: "فشل حذف الإشعار" },
       { status: 500 }
     );
   }
 }
-

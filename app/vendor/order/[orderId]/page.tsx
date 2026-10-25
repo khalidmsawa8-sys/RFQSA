@@ -233,9 +233,35 @@ export default function VendorOrderPage() {
               </div>
             )}
             <div className="border-t pt-3 space-y-2">
+              {(() => {
+                const partsSub = Number((order as any).parts_subtotal ?? (order as any).subtotal ?? order.total_price);
+                const feeRate = Number((order as any).vendor_platform_fee_percent ?? 5);
+                const feeAmt = Number((order as any).vendor_platform_fee ?? ((partsSub * feeRate) / 100).toFixed(2));
+                const netParts = Math.max(0, Number((partsSub - feeAmt).toFixed(2)));
+
+                return (
+                  <div className="bg-emerald-50/60 p-3 rounded-xl border border-emerald-100 space-y-1.5 text-xs mb-2">
+                    <span className="font-bold text-emerald-900 block text-xs border-b border-emerald-100 pb-1">
+                      تفاصيل مستحقات المورد
+                    </span>
+                    <div className="flex items-center justify-between text-slate-600">
+                      <span>قيمة القطع:</span>
+                      <span className="font-mono font-bold text-slate-800">{partsSub.toFixed(2)} ر.س</span>
+                    </div>
+                    <div className="flex items-center justify-between text-amber-700">
+                      <span>رسوم المنصة المخصومة ({feeRate}%):</span>
+                      <span className="font-mono font-bold">-{feeAmt.toFixed(2)} ر.س</span>
+                    </div>
+                    <div className="flex items-center justify-between text-emerald-800 font-bold border-t border-emerald-100 pt-1">
+                      <span>صافي مستحقات المورد:</span>
+                      <span className="font-mono font-black text-emerald-950 text-sm">{netParts.toFixed(2)} ر.س</span>
+                    </div>
+                  </div>
+                );
+              })()}
               <div className="flex items-center justify-between">
-                <span className="text-muted-foreground flex items-center gap-1.5"><CreditCard className="w-4 h-4" /> السعر الإجمالي</span>
-                <span className="font-bold text-lg text-primary">{order.total_price} ر.س</span>
+                <span className="text-muted-foreground flex items-center gap-1.5"><CreditCard className="w-4 h-4" /> إجمالي الفاتورة المدفوع</span>
+                <span className="font-bold text-base text-primary">{order.total_price} ر.س</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-muted-foreground flex items-center gap-1.5"><Clock className="w-4 h-4" /> مدة التوصيل</span>

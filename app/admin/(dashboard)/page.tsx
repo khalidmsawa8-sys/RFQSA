@@ -938,7 +938,7 @@ export default function AdminOverviewPage() {
               { href: "/admin/orders", label: "إدارة الطلبات والصفقات", sub: `${stats?.totalOrders || 0} طلب`, icon: ShoppingBag, color: "text-emerald-600 bg-emerald-50" },
               { href: "/admin/orders?tab=rfqs", label: "طلبات عروض الأسعار (RFQs)", sub: `${stats?.totalRfqs || 0} مناقصة`, icon: FileText, color: "text-amber-600 bg-amber-50" },
               { href: "/admin/invoices", label: "الفواتير الضريبية ZATCA", sub: `${stats?.totalInvoices || 0} فاتورة`, icon: ClipboardList, color: "text-violet-600 bg-violet-50" },
-              { href: "/admin/wallet", label: "المحافظ المالية والعمليات", sub: "سجل الحركات والأرصدة", icon: Wallet, color: "text-indigo-600 bg-indigo-50" },
+              { href: "/admin/wallet", label: "محفظة الأدمن (العمولات)", sub: "سجل عمولات المنصة والأرصدة", icon: Wallet, color: "text-emerald-700 bg-emerald-50" },
               { href: "/admin/couriers", label: "أسطول المناديب والتوصيل", sub: `${stats?.couriersCount || 0} مندوب معتمد`, icon: Truck, color: "text-teal-600 bg-teal-50" },
               { href: "/admin/coupons", label: "أكواد الخصم والكوبونات", sub: "العروض الترويجية", icon: Tag, color: "text-pink-600 bg-pink-50" },
               { href: "/admin/audit", label: "سجل الأنشطة والرقابة الأمنية", sub: "تتبع كافة الحركات", icon: ShieldCheck, color: "text-slate-600 bg-slate-100" },

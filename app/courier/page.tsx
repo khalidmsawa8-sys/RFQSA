@@ -25,21 +25,33 @@ import { DELIVERY_STATUS_META } from "@/lib/delivery-state-machine";
 
 export default function CourierDashboardPage() {
   const [deliveries, setDeliveries] = useState<DeliveryRecord[]>([]);
+  const [walletLedger, setWalletLedger] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"active" | "completed">("active");
   const [searchQuery, setSearchQuery] = useState("");
 
   const fetchDeliveries = async () => {
     try {
-      const res = await fetch("/api/v1/courier/deliveries", {
-        headers: { "x-courier-id": "courier-demo-id" },
-      });
-      const data = await res.json();
+      const [delRes, walRes] = await Promise.all([
+        fetch("/api/v1/courier/deliveries", {
+          headers: { "x-courier-id": "courier-demo-id" },
+        }),
+        fetch("/api/v1/courier/wallet", {
+          headers: { "x-courier-id": "courier-demo-id" },
+        }),
+      ]);
+
+      const data = await delRes.json();
       if (data.success && Array.isArray(data.deliveries)) {
         setDeliveries(data.deliveries);
       }
+
+      const wData = await walRes.json();
+      if (wData.success && wData.wallet?.ledger_entries) {
+        setWalletLedger(wData.wallet.ledger_entries);
+      }
     } catch (err) {
-      console.error("Failed to load deliveries:", err);
+      console.error("Failed to load courier data:", err);
     } finally {
       setIsLoading(false);
     }
@@ -84,10 +96,35 @@ export default function CourierDashboardPage() {
     );
   }, [activeTab, activeDeliveries, completedDeliveries, searchQuery]);
 
-  // Today's total earned commission
-  const todayEarnings = useMemo(() => {
-    return completedDeliveries.reduce((sum, d) => sum + (d.delivery_fee_earned || 35), 0);
+  // Today's completed count
+  const completedTodayCount = useMemo(() => {
+    const todayStr = new Date().toDateString();
+    return completedDeliveries.filter((d) => {
+      const dDate = new Date((d as any).delivered_at || d.updated_at || d.created_at).toDateString();
+      return dDate === todayStr;
+    }).length;
   }, [completedDeliveries]);
+
+  // Today's total earned commission matched strictly with wallet ledger
+  const todayEarnings = useMemo(() => {
+    const todayStr = new Date().toDateString();
+    const todayCredits = walletLedger.filter((e) => {
+      const isCredit = e.entry_type === "COMMISSION_CREDIT" || e.entry_type === "BONUS";
+      if (!isCredit) return false;
+      const entryDate = new Date(e.created_at || Date.now()).toDateString();
+      return entryDate === todayStr;
+    });
+
+    if (todayCredits.length > 0) {
+      return todayCredits.reduce((sum, e) => sum + Number(e.amount || 0), 0);
+    }
+
+    const completedToday = completedDeliveries.filter((d) => {
+      const dDate = new Date((d as any).delivered_at || d.updated_at || d.created_at).toDateString();
+      return dDate === todayStr;
+    });
+    return completedToday.reduce((sum, d) => sum + Number(d.delivery_fee_earned || 35), 0);
+  }, [walletLedger, completedDeliveries]);
 
   return (
     <div className="space-y-3.5">
@@ -103,7 +140,7 @@ export default function CourierDashboardPage() {
         <div className="bg-white rounded-2xl p-2.5 border border-slate-200/80 shadow-2xs text-center">
           <span className="text-[10px] text-slate-500 font-bold block">المكتملة اليوم</span>
           <span className="text-xl font-black text-emerald-800 font-mono mt-0.5 block">
-            {completedDeliveries.length}
+            {completedTodayCount}
           </span>
         </div>
 
@@ -211,6 +248,37 @@ export default function CourierDashboardPage() {
                   </span>
                 </div>
 
+                {/* Vendor Preparation & Readiness Timer Bar */}
+                <div
+                  className={`flex items-center justify-between gap-2 p-2 rounded-2xl border text-[11px] mb-2 ${
+                    delivery.is_ready_for_pickup
+                      ? "bg-emerald-50/90 border-emerald-200 text-emerald-800"
+                      : "bg-amber-50/90 border-amber-200 text-amber-800"
+                  }`}
+                >
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <Clock
+                      className={`w-3.5 h-3.5 shrink-0 ${
+                        delivery.is_ready_for_pickup ? "text-emerald-600" : "text-amber-600"
+                      }`}
+                    />
+                    <span className="font-bold truncate">
+                      {delivery.is_ready_for_pickup
+                        ? "جاهز للاستلام الميداني الآن من المورد 🚀"
+                        : `موعد تجهيز الطلب: ${delivery.prep_time_text || "خلال 24 ساعة"}`}
+                    </span>
+                  </div>
+                  <span
+                    className={`text-[9px] font-black px-2 py-0.5 rounded-full shrink-0 ${
+                      delivery.is_ready_for_pickup
+                        ? "bg-emerald-100 text-emerald-900 border border-emerald-300"
+                        : "bg-amber-100 text-amber-900 border border-amber-300"
+                    }`}
+                  >
+                    {delivery.is_ready_for_pickup ? "جاهز للتوجه ✓" : "قيد التجهيز ⏳"}
+                  </span>
+                </div>
+
                 {/* 2-Leg Journey Details */}
                 <div className="space-y-2 text-xs">
                   {/* Leg 1: Supplier Pickup */}
@@ -237,7 +305,15 @@ export default function CourierDashboardPage() {
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center justify-between">
                         <span className="text-[10px] text-slate-400 font-bold">التسليم للعميل:</span>
-                        <span className="text-[10px] text-emerald-800 font-bold">{delivery.client_name}</span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[10px] text-emerald-800 font-bold">{delivery.client_name}</span>
+                          {delivery.client_phone && (
+                            <span className="text-[10px] font-mono font-black text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200/80 flex items-center gap-1">
+                              <Phone className="w-2.5 h-2.5" />
+                              {delivery.client_phone}
+                            </span>
+                          )}
+                        </div>
                       </div>
                       <p className="text-xs font-bold text-slate-800 truncate mt-0.5">
                         {delivery.dropoff_address}

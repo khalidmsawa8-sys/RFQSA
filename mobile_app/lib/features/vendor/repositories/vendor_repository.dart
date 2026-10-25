@@ -15,14 +15,26 @@ class VendorRepository {
     return await _apiClient.get<List<RfqModel>>(
       ApiEndpoints.rfqs,
       fromJson: (data) {
+        final List<dynamic> list;
         if (data is List) {
-          return data.map((e) => RfqModel.fromJson(e as Map<String, dynamic>)).toList();
+          list = data;
         } else if (data is Map && data['rfqs'] is List) {
-          return (data['rfqs'] as List).map((e) => RfqModel.fromJson(e as Map<String, dynamic>)).toList();
+          list = data['rfqs'] as List;
         } else if (data is Map && data['data'] is List) {
-          return (data['data'] as List).map((e) => RfqModel.fromJson(e as Map<String, dynamic>)).toList();
+          list = data['data'] as List;
+        } else {
+          return <RfqModel>[];
         }
-        return [];
+
+        final results = <RfqModel>[];
+        for (final item in list) {
+          if (item is Map) {
+            try {
+              results.add(RfqModel.fromJson(Map<String, dynamic>.from(item)));
+            } catch (_) {}
+          }
+        }
+        return results;
       },
     );
   }

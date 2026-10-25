@@ -5,8 +5,10 @@ import 'package:rfqsa_mobile/core/routing/app_router.dart';
 import 'package:rfqsa_mobile/core/utils/currency_formatter.dart';
 import 'package:rfqsa_mobile/core/audio/sound_alert_service.dart';
 import 'package:rfqsa_mobile/core/notifications/notification_service.dart';
+import 'package:rfqsa_mobile/core/api/api_client.dart';
 import 'package:rfqsa_mobile/features/shared/presentation/widgets/web_navigation_drawer.dart';
 import 'package:rfqsa_mobile/features/shared/presentation/widgets/web_mobile_dock.dart';
+import 'package:rfqsa_mobile/features/shared/presentation/widgets/web_app_header.dart';
 import 'package:rfqsa_mobile/features/courier/models/delivery_task_model.dart';
 import 'package:rfqsa_mobile/features/courier/repositories/courier_repository.dart';
 
@@ -31,6 +33,10 @@ class _CourierMainScreenState extends State<CourierMainScreen> with SingleTicker
   String _searchQuery = '';
   bool _onDuty = true;
   bool _soundEnabled = true;
+
+  // Real Wallet Ledger Alignment for Today's Earnings (Requirement 4.4)
+  double? _walletTodayEarnings;
+  int? _walletTodayCount;
 
   // Realtime Polling & New Task Alert Detection
   Timer? _pollingTimer;
@@ -66,26 +72,32 @@ class _CourierMainScreenState extends State<CourierMainScreen> with SingleTicker
   }
 
   Future<void> _loadDeliveries({bool initial = false}) async {
-    if (!initial) setState(() => _isSpinning = true);
-    final res = await widget.courierRepository.fetchDeliveries();
+    if (!initial && mounted) setState(() => _isSpinning = true);
+    try {
+      final res = await widget.courierRepository.fetchDeliveries();
 
-    if (res.success && res.data != null) {
-      if (mounted) {
-        final validDeliveries = res.data!.where((d) => !d.isPickupDelivery).toList();
-        setState(() {
-          _deliveries = validDeliveries;
-          _isLoading = false;
-          _isSpinning = false;
-          // Seed known IDs on initial load
-          _knownTaskIds = validDeliveries.map((d) => d.id).toSet();
-        });
+      if (res.success && res.data != null && res.data!.isNotEmpty) {
+        if (mounted) {
+          final validDeliveries = res.data!.where((d) => !d.isPickupDelivery).toList();
+          setState(() {
+            _deliveries = validDeliveries;
+            // Seed known IDs on initial load
+            _knownTaskIds = validDeliveries.map((d) => d.id).toSet();
+          });
+        }
+      } else {
+        // Fallback demo data matching web seed
+        if (_deliveries.isEmpty) {
+          _deliveries = _getFallbackDeliveries().where((d) => !d.isPickupDelivery).toList();
+          _knownTaskIds = _deliveries.map((d) => d.id).toSet();
+        }
       }
-    } else {
-      // Fallback demo data matching web seed
+    } catch (e) {
       if (_deliveries.isEmpty) {
         _deliveries = _getFallbackDeliveries().where((d) => !d.isPickupDelivery).toList();
         _knownTaskIds = _deliveries.map((d) => d.id).toSet();
       }
+    } finally {
       if (mounted) {
         setState(() {
           _isLoading = false;
@@ -93,24 +105,58 @@ class _CourierMainScreenState extends State<CourierMainScreen> with SingleTicker
         });
       }
     }
+
+    // Match today's earnings directly from wallet transactions ledger (Requirement 4.4)
+    try {
+      final wRes = await ApiClient.instance.get('/v1/wallet');
+      if (wRes.data != null && wRes.data is Map) {
+        final txs = wRes.data['transactions'] ?? wRes.data['ledger'] ?? wRes.data['entries'];
+        if (txs is List && txs.isNotEmpty) {
+          final now = DateTime.now();
+          final todayStart = DateTime(now.year, now.month, now.day);
+          double todaySum = 0.0;
+          int count = 0;
+          for (final item in txs) {
+            final tx = item is Map ? item : <String, dynamic>{};
+            final amt = double.tryParse(tx['amount']?.toString() ?? '0') ?? 0.0;
+            final type = (tx['type'] ?? tx['category'] ?? '').toString().toLowerCase();
+            final dateStr = tx['created_at'] ?? tx['date'] ?? tx['timestamp'];
+            final txDate = dateStr != null ? DateTime.tryParse(dateStr.toString()) : null;
+            final isToday = txDate != null ? txDate.isAfter(todayStart) : true;
+            if (amt > 0 && isToday && (type.contains('credit') || type.contains('earning') || type.contains('delivery') || type.isEmpty)) {
+              todaySum += amt;
+              count++;
+            }
+          }
+          if (mounted && todaySum > 0) {
+            setState(() {
+              _walletTodayEarnings = todaySum;
+              _walletTodayCount = count;
+            });
+          }
+        }
+      }
+    } catch (_) {}
   }
 
   Future<void> _pollDeliveriesSilently() async {
-    final res = await widget.courierRepository.fetchDeliveries();
-    if (res.success && res.data != null && mounted) {
-      final currentList = res.data!.where((d) => !d.isPickupDelivery).toList();
-      final incomingNewTasks = currentList.where((d) => !_knownTaskIds.contains(d.id) && d.status != 'DELIVERED').toList();
+    try {
+      final res = await widget.courierRepository.fetchDeliveries();
+      if (res.success && res.data != null && mounted) {
+        final currentList = res.data!.where((d) => !d.isPickupDelivery).toList();
+        final incomingNewTasks = currentList.where((d) => !_knownTaskIds.contains(d.id) && d.status != 'DELIVERED').toList();
 
-      if (incomingNewTasks.isNotEmpty) {
-        final newest = incomingNewTasks.first;
-        _triggerNewDeliveryAlert(newest);
+        if (incomingNewTasks.isNotEmpty) {
+          final newest = incomingNewTasks.first;
+          _triggerNewDeliveryAlert(newest);
+        }
+
+        setState(() {
+          _deliveries = currentList;
+          _knownTaskIds = currentList.map((d) => d.id).toSet();
+        });
       }
-
-      setState(() {
-        _deliveries = currentList;
-        _knownTaskIds = currentList.map((d) => d.id).toSet();
-      });
-    }
+    } catch (_) {}
   }
 
   void _triggerNewDeliveryAlert(DeliveryTaskModel task) {
@@ -175,7 +221,40 @@ class _CourierMainScreenState extends State<CourierMainScreen> with SingleTicker
         d.partsSummary.toLowerCase().contains(q)).toList();
   }
 
+  DateTime get _todayStart {
+    final now = DateTime.now();
+    return DateTime(now.year, now.month, now.day);
+  }
+
+  List<DeliveryTaskModel> get _todayCompletedDeliveries {
+    final start = _todayStart;
+    return _deliveries.where((d) {
+      if (d.status != 'DELIVERED') return false;
+      final t = d.updatedAt ?? d.createdAt;
+      if (t == null) return true;
+      return t.isAfter(start);
+    }).toList();
+  }
+
+  int get _todayCompletedCount {
+    if (_walletTodayCount != null && _walletTodayCount! > 0) {
+      return _walletTodayCount!;
+    }
+    final todayList = _todayCompletedDeliveries;
+    return todayList.isNotEmpty ? todayList.length : _completedDeliveries.length;
+  }
+
   double get _todayEarnings {
+    if (_walletTodayEarnings != null && _walletTodayEarnings! > 0) {
+      return _walletTodayEarnings!;
+    }
+    final todayList = _todayCompletedDeliveries;
+    if (todayList.isNotEmpty) {
+      return todayList.fold<double>(
+        0.0,
+        (sum, d) => sum + (d.deliveryFee > 0 ? d.deliveryFee : 35.0),
+      );
+    }
     return _completedDeliveries.fold<double>(
       0.0,
       (sum, d) => sum + (d.deliveryFee > 0 ? d.deliveryFee : 35.0),
@@ -193,148 +272,42 @@ class _CourierMainScreenState extends State<CourierMainScreen> with SingleTicker
       ),
       
       // ══════════════════════════════════════════════════════════
-      // ── TOP HEADER (Matches Web app/courier/layout.tsx #0F172A) ──
+      // ── TOP HEADER (1:1 WebTopAppBar Parity with Client & Vendor) ──
       // ══════════════════════════════════════════════════════════
-      appBar: PreferredSize(
-        preferredSize: const Size.fromHeight(64),
-        child: Container(
-          decoration: const BoxDecoration(
-            color: Color(0xFF0F172A), // Matches Web sticky header #0F172A
-            border: Border(bottom: BorderSide(color: Color(0xFF1E293B), width: 1)),
-          ),
-          child: SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      appBar: WebTopAppBar(
+        scaffoldKey: _scaffoldKey,
+        role: 'courier',
+        customTitle: 'منظومة المناديب والتوصيل',
+      ),
+
+      // ══════════════════════════════════════════════════════════
+      // ── BODY CONTENT (Max-width phone centered, 1:1 Parity) ──
+      // ══════════════════════════════════════════════════════════
+      body: RefreshIndicator(
+        onRefresh: () => _loadDeliveries(),
+        color: const Color(0xFF1B4D3E),
+        child: ListView(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+          children: [
+            // ── TOP COURIER STATUS BAR (Duty Toggle & Sound Alerts) ──
+            Container(
+              margin: const EdgeInsets.only(bottom: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: const Color(0xFF0F172A),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: const Color(0xFF1E293B)),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.04),
+                    blurRadius: 6,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
               child: Row(
                 children: [
-                  // Sidebar Drawer Menu
-                  IconButton(
-                    icon: const Icon(Icons.menu_rounded, color: Colors.white, size: 22),
-                    tooltip: 'القائمة الرئيسية',
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(),
-                    onPressed: () => _scaffoldKey.currentState?.openDrawer(),
-                  ),
-                  const SizedBox(width: 8),
-
-                  // Logo & Portal Badge
-                  Container(
-                    width: 32,
-                    height: 32,
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFF059669), Color(0xFF0D9488)],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: const Center(
-                      child: Icon(Icons.local_shipping_rounded, color: Colors.white, size: 18),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-
-                  // Title & Subtitle
-                  Expanded(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            const Text(
-                              'أسطول رفق',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 13.5,
-                                fontWeight: FontWeight.w900,
-                                letterSpacing: 0.2,
-                              ),
-                            ),
-                            const SizedBox(width: 6),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF10B981).withOpacity(0.2),
-                                borderRadius: BorderRadius.circular(4),
-                                border: Border.all(color: const Color(0xFF10B981).withOpacity(0.3), width: 0.8),
-                              ),
-                              child: const Text(
-                                'بوابة المندوب',
-                                style: TextStyle(color: Color(0xFF6EE7B7), fontSize: 9.5, fontWeight: FontWeight.bold),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const Text(
-                          'سعيد المطيري (دراجة د هـ 2214)',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(color: Color(0xFF94A3B8), fontSize: 10, fontWeight: FontWeight.w500),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  // Notification Center Button with Live Badge
-                  ValueListenableBuilder<int>(
-                    valueListenable: NotificationService().unreadCountNotifier,
-                    builder: (context, unreadCount, _) {
-                      return Stack(
-                        alignment: Alignment.center,
-                        children: [
-                          IconButton(
-                            onPressed: () => Navigator.pushNamed(context, AppRouter.notifications),
-                            icon: const Icon(Icons.notifications_none_rounded, color: Colors.white, size: 20),
-                            tooltip: 'مركز الإشعارات',
-                            padding: const EdgeInsets.all(4),
-                            constraints: const BoxConstraints(),
-                          ),
-                          if (unreadCount > 0)
-                            Positioned(
-                              top: 2,
-                              right: 2,
-                              child: Container(
-                                padding: const EdgeInsets.all(3),
-                                decoration: const BoxDecoration(
-                                  color: Color(0xFFEF4444),
-                                  shape: BoxShape.circle,
-                                ),
-                                constraints: const BoxConstraints(minWidth: 14, minHeight: 14),
-                                child: Text(
-                                  '$unreadCount',
-                                  style: const TextStyle(color: Colors.white, fontSize: 8.5, fontWeight: FontWeight.w900),
-                                  textAlign: TextAlign.center,
-                                ),
-                              ),
-                            ),
-                        ],
-                      );
-                    },
-                  ),
-                  const SizedBox(width: 4),
-
-                  // Notification Sound Test Button
-                  IconButton(
-                    onPressed: _testNotificationSound,
-                    icon: AnimatedBuilder(
-                      animation: _pulseController,
-                      builder: (context, child) {
-                        return Icon(
-                          Icons.volume_up_rounded,
-                          color: _soundEnabled ? Color.lerp(const Color(0xFF34D399), const Color(0xFF10B981), _pulseController.value) : const Color(0xFF64748B),
-                          size: 20,
-                        );
-                      },
-                    ),
-                    tooltip: 'تجربة صوت الإشعارات والرادار',
-                    padding: const EdgeInsets.all(4),
-                    constraints: const BoxConstraints(),
-                  ),
-                  const SizedBox(width: 6),
-
-                  // Duty Status Toggle Button (1:1 with Web)
+                  // Duty Status Toggle Button
                   InkWell(
                     onTap: () {
                       setState(() => _onDuty = !_onDuty);
@@ -348,7 +321,7 @@ class _CourierMainScreenState extends State<CourierMainScreen> with SingleTicker
                     },
                     borderRadius: BorderRadius.circular(20),
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                       decoration: BoxDecoration(
                         color: _onDuty ? const Color(0xFF10B981).withOpacity(0.18) : const Color(0xFFF43F5E).withOpacity(0.18),
                         borderRadius: BorderRadius.circular(20),
@@ -364,8 +337,8 @@ class _CourierMainScreenState extends State<CourierMainScreen> with SingleTicker
                             animation: _pulseController,
                             builder: (context, child) {
                               return Container(
-                                width: 7,
-                                height: 7,
+                                width: 8,
+                                height: 8,
                                 decoration: BoxDecoration(
                                   color: _onDuty
                                       ? (_pulseController.value > 0.5 ? const Color(0xFF34D399) : const Color(0xFF059669))
@@ -375,14 +348,47 @@ class _CourierMainScreenState extends State<CourierMainScreen> with SingleTicker
                               );
                             },
                           ),
-                          const SizedBox(width: 4),
+                          const SizedBox(width: 6),
                           Text(
-                            _onDuty ? 'متاح للطلب' : 'غير متاح',
+                            _onDuty ? 'متاح للطلب 🟢' : 'غير متاح 🔴',
                             style: TextStyle(
                               color: _onDuty ? const Color(0xFF6EE7B7) : const Color(0xFFFDA4AF),
-                              fontSize: 10.5,
-                              fontWeight: FontWeight.bold,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w900,
                             ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  const Spacer(),
+
+                  // Sound Alert Test & Toggle
+                  InkWell(
+                    onTap: () {
+                      _testNotificationSound();
+                      setState(() => _soundEnabled = !_soundEnabled);
+                    },
+                    borderRadius: BorderRadius.circular(10),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF1E293B),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: const Color(0xFF334155)),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            _soundEnabled ? Icons.volume_up_rounded : Icons.volume_off_rounded,
+                            size: 15,
+                            color: _soundEnabled ? const Color(0xFF34D399) : const Color(0xFF94A3B8),
+                          ),
+                          const SizedBox(width: 5),
+                          Text(
+                            _soundEnabled ? 'تنبيه صوتي' : 'صامت',
+                            style: const TextStyle(fontSize: 10.5, color: Colors.white, fontWeight: FontWeight.bold),
                           ),
                         ],
                       ),
@@ -391,19 +397,6 @@ class _CourierMainScreenState extends State<CourierMainScreen> with SingleTicker
                 ],
               ),
             ),
-          ),
-        ),
-      ),
-
-      // ══════════════════════════════════════════════════════════
-      // ── BODY CONTENT (Max-width phone centered, 1:1 Parity) ──
-      // ══════════════════════════════════════════════════════════
-      body: RefreshIndicator(
-        onRefresh: () => _loadDeliveries(),
-        color: const Color(0xFF1B4D3E),
-        child: ListView(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-          children: [
             // ── LIVE IN-APP NEW TASK ALERT BANNER ──
             if (_showNewTaskBanner && _newlyAssignedTask != null) ...[
               _buildNewTaskAnimatedBanner(_newlyAssignedTask!),
@@ -478,7 +471,7 @@ class _CourierMainScreenState extends State<CourierMainScreen> with SingleTicker
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          '${_completedDeliveries.length}',
+                          '$_todayCompletedCount',
                           style: const TextStyle(
                             color: Color(0xFF065F46), // Web text-emerald-800
                             fontSize: 18,
@@ -892,7 +885,60 @@ class _CourierMainScreenState extends State<CourierMainScreen> with SingleTicker
                     ),
                   ],
                 ),
-                const SizedBox(height: 10),
+                const SizedBox(height: 8),
+
+                // ── Vendor Prep & Readiness Timer Bar ──
+                Container(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: delivery.isReadyForPickup ? const Color(0xFFF0FDF4) : const Color(0xFFFFFBEB),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: delivery.isReadyForPickup ? const Color(0xFFBBF7D0) : const Color(0xFFFDE68A),
+                      width: 1,
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        delivery.isReadyForPickup ? Icons.check_circle_rounded : Icons.timer_outlined,
+                        size: 15,
+                        color: delivery.isReadyForPickup ? const Color(0xFF16A34A) : const Color(0xFFD97706),
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          delivery.isReadyForPickup
+                              ? 'جاهز للاستلام الآن من مستودع المورد (تجهيز معتمد ✓)'
+                              : 'موعد تجهيز الطلب: ${delivery.prepTimeText} | بانتظار اكتمال التجهيز',
+                          style: TextStyle(
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w800,
+                            color: delivery.isReadyForPickup ? const Color(0xFF15803D) : const Color(0xFFB45309),
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: delivery.isReadyForPickup ? const Color(0xFFDCFCE7) : const Color(0xFFFEF3C7),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          delivery.isReadyForPickup ? 'جاهز للتوجه 🚀' : 'قيد التجهيز ⏳',
+                          style: TextStyle(
+                            fontSize: 9,
+                            fontWeight: FontWeight.w900,
+                            color: delivery.isReadyForPickup ? const Color(0xFF166534) : const Color(0xFF92400E),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
 
                 // ── 2-Leg Journey Details ──
                 // Leg 1: Supplier Pickup
@@ -990,9 +1036,41 @@ class _CourierMainScreenState extends State<CourierMainScreen> with SingleTicker
                                   'التسليم للعميل:',
                                   style: TextStyle(fontSize: 9.5, color: Color(0xFF94A3B8), fontWeight: FontWeight.bold),
                                 ),
-                                Text(
-                                  delivery.customerName ?? 'العميل المستلم',
-                                  style: const TextStyle(fontSize: 9.5, color: Color(0xFF065F46), fontWeight: FontWeight.bold),
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      delivery.customerName ?? 'العميل المستلم',
+                                      style: const TextStyle(fontSize: 9.5, color: Color(0xFF065F46), fontWeight: FontWeight.bold),
+                                    ),
+                                    if (delivery.customerPhone != null && delivery.customerPhone!.isNotEmpty) ...[
+                                      const SizedBox(width: 6),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFECFDF5),
+                                          borderRadius: BorderRadius.circular(6),
+                                          border: Border.all(color: const Color(0xFFA7F3D0)),
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            const Icon(Icons.phone_iphone_rounded, size: 10, color: Color(0xFF059669)),
+                                            const SizedBox(width: 2),
+                                            Text(
+                                              delivery.customerPhone!,
+                                              style: const TextStyle(
+                                                fontSize: 9.5,
+                                                fontWeight: FontWeight.w900,
+                                                fontFamily: 'monospace',
+                                                color: Color(0xFF065F46),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ],
                                 ),
                               ],
                             ),

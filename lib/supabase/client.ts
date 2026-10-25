@@ -364,91 +364,7 @@ const DEFAULT_ORDERS: any[] = [
   }
 ];
 
-const DEFAULT_QUOTES: any[] = [
-  {
-    id: "Q-8412-1",
-    rfq_id: "RFQ-8412",
-    vendor_id: "vendor-demo-id",
-    total_price: 2850,
-    delivery_days: 2,
-    delivery_cost: 0,
-    notes: "⏱️ مدة التجهيز: يومان | 📝 ملاحظات: القطع أصلية وكالة مع ضمان الوكيل",
-    status: "pending",
-    created_at: new Date(Date.now() - 6 * 3600 * 1000).toISOString(),
-    items: [
-      {
-        part_name: "صدام أمامي أصلي",
-        part_number: "52119-06970",
-        part_type: "original",
-        original_price: 1800,
-        commercial_price: 0,
-        commercial_brand: null,
-        quantity: 1,
-        unit_price: 1800,
-        line_total: 1800,
-        availability: "available",
-        image_url: null,
-      },
-      {
-        part_name: "شبك علوي أصلي",
-        part_number: "53101-06510",
-        part_type: "original",
-        original_price: 680,
-        commercial_price: 0,
-        commercial_brand: null,
-        quantity: 1,
-        unit_price: 680,
-        line_total: 680,
-        availability: "available",
-        image_url: null,
-      },
-    ],
-    profiles: {
-      id: "vendor-demo-id",
-      full_name: "مؤسسة قطع الغيار المعتمدة",
-      company_name: "مؤسسة قطع الغيار المعتمدة",
-      phone: "0551122334",
-      tax_number: "300123456700003",
-      commercial_register: "1010987654",
-      national_address: "الرياض - طريق خريص",
-    },
-  },
-  {
-    id: "Q-6190-1",
-    rfq_id: "RFQ-6190",
-    vendor_id: "vendor-demo-id",
-    total_price: 4200,
-    delivery_days: 3,
-    delivery_cost: 0,
-    notes: "⏱️ مدة التجهيز: 3 أيام | 📝 ملاحظات: توفر شمعات وكالة مع ضمان سنة",
-    status: "pending",
-    created_at: new Date(Date.now() - 8 * 3600 * 1000).toISOString(),
-    items: [
-      {
-        part_name: "شمعة أمامية يمين Full LED",
-        part_number: "81110-60P50",
-        part_type: "original",
-        original_price: 4200,
-        commercial_price: 0,
-        commercial_brand: null,
-        quantity: 1,
-        unit_price: 4200,
-        line_total: 4200,
-        availability: "available",
-        image_url: null,
-      },
-    ],
-    profiles: {
-      id: "vendor-demo-id",
-      full_name: "مؤسسة قطع الغيار المعتمدة",
-      company_name: "مؤسسة قطع الغيار المعتمدة",
-      phone: "0551122334",
-      tax_number: "300123456700003",
-      commercial_register: "1010987654",
-      national_address: "الرياض - طريق خريص",
-    },
-  },
-];
+const DEFAULT_QUOTES: any[] = [];
 
 const DEFAULT_PROFILES: any[] = [
   {
@@ -1516,21 +1432,83 @@ export function createClient(): SupabaseClient {
                 quotes: table === "rfqs" ? [] : undefined,
                 client: table === "rfqs" ? { full_name: curUserName, company_name: curUserName } : undefined,
                 client_id: curUserId,
-                profiles: table === "quotes" ? {
-                  id: it.vendor_id || curUserId,
-                  full_name: curUserName,
-                  company_name: curUserName,
-                  phone: "0551122334",
-                  tax_number: "300123456700003",
-                  commercial_register: "1010987654",
-                  national_address: "الرياض - طريق خريص",
-                } : undefined,
-                ...it
+                profiles: table === "quotes" ? (() => {
+                  const storedProfiles = getStoredTable("profiles");
+                  const targetVId = it.vendor_id || curUserId;
+                  const found = storedProfiles.find((p: any) => p.id === targetVId);
+                  if (found) {
+                    return {
+                      id: found.id,
+                      full_name: found.full_name || found.company_name || "مورد معتمد",
+                      company_name: found.company_name || found.full_name || "مورد معتمد",
+                      phone: found.phone || "0551122334",
+                      city: found.city || "",
+                      tax_number: found.tax_number || "300123456700003",
+                      commercial_register: found.commercial_register || "1010987654",
+                      national_address: found.national_address || found.address || "الرياض",
+                      ref_code: found.ref_code || "VND-501",
+                      rating: found.rating || 5.0,
+                    };
+                  }
+                  return it.profiles || {
+                    id: targetVId,
+                    full_name: curUserName,
+                    company_name: curUserName,
+                    phone: "0551122334",
+                    tax_number: "300123456700003",
+                    commercial_register: "1010987654",
+                    national_address: "الرياض - طريق خريص",
+                  };
+                })() : undefined,
+                ...it,
+                ...(table === "quotes" && it.vendor_id ? {
+                  profiles: (() => {
+                    const storedProfiles = getStoredTable("profiles");
+                    const found = storedProfiles.find((p: any) => p.id === it.vendor_id);
+                    if (found) {
+                      return {
+                        id: found.id,
+                        full_name: found.full_name || found.company_name,
+                        company_name: found.company_name || found.full_name,
+                        phone: found.phone || "0551122334",
+                        tax_number: found.tax_number || "300123456700003",
+                        commercial_register: found.commercial_register || "1010987654",
+                        national_address: found.national_address || found.address || "الرياض",
+                        ref_code: found.ref_code || "VND-501",
+                      };
+                    }
+                    return it.profiles;
+                  })()
+                } : {})
               }));
               const updated = [...newItems, ...list];
               setStoredTable(table, updated);
 
               if (table === "quotes" && typeof window !== "undefined") {
+                const targetRfqId = newItems[0]?.rfq_id;
+                const targetVendorId = newItems[0]?.vendor_id;
+                if (targetRfqId) {
+                  try {
+                    const rfqsList = getStoredTable("rfqs");
+                    const updatedRfqs = rfqsList.map((r: any) => {
+                      if (r.id === targetRfqId) {
+                        const existingQuotes = (Array.isArray(r.quotes) ? r.quotes : []).filter(
+                          (q: any) => q.vendor_id !== targetVendorId
+                        );
+                        return {
+                          ...r,
+                          status: "quoted",
+                          quotes: [...newItems, ...existingQuotes],
+                        };
+                      }
+                      return r;
+                    });
+                    setStoredTable("rfqs", updatedRfqs, true);
+                  } catch (rfqErr) {
+                    console.warn("Failed to sync RFQ quotes in local storage:", rfqErr);
+                  }
+                }
+
                 try {
                   fetch("/api/quotes", {
                     method: "POST",
@@ -1810,10 +1788,63 @@ export function createClient(): SupabaseClient {
                 });
               }
 
+              if (table === "quotes") {
+                const allProfiles = getStoredTable("profiles");
+                list = list.map((q: any) => {
+                  const matchedVendor = allProfiles.find((p: any) => p.id === q.vendor_id);
+                  if (matchedVendor) {
+                    return {
+                      ...q,
+                      profiles: {
+                        id: matchedVendor.id,
+                        full_name: matchedVendor.full_name || matchedVendor.company_name || "مورد معتمد",
+                        company_name: matchedVendor.company_name || matchedVendor.full_name || "مورد معتمد",
+                        phone: matchedVendor.phone || q.profiles?.phone || "0551122334",
+                        city: matchedVendor.city || "",
+                        district: matchedVendor.district || "",
+                        address: matchedVendor.address || "",
+                        tax_number: matchedVendor.tax_number || q.profiles?.tax_number || "300123456700003",
+                        commercial_register: matchedVendor.commercial_register || q.profiles?.commercial_register || "1010987654",
+                        national_address: matchedVendor.national_address || matchedVendor.address || q.profiles?.national_address || "الرياض",
+                        ref_code: matchedVendor.ref_code || q.profiles?.ref_code || "VND-501",
+                        rating: matchedVendor.rating || 5.0,
+                        orders_count: matchedVendor.orders_count || 0,
+                        completed_deals: matchedVendor.completed_deals || 0,
+                        commitment_rate: matchedVendor.commitment_rate || "98%",
+                      }
+                    };
+                  }
+                  return q;
+                });
+              }
+
               if (table === "rfqs") {
                 const allQuotes = getStoredTable("quotes");
+                const allProfiles = getStoredTable("profiles");
                 list = list.map(r => {
-                  const rQuotes = allQuotes.filter(q => q.rfq_id === r.id);
+                  const rQuotes = allQuotes.filter(q => q.rfq_id === r.id).map((q: any) => {
+                    const matchedVendor = allProfiles.find((p: any) => p.id === q.vendor_id);
+                    if (matchedVendor) {
+                      return {
+                        ...q,
+                        profiles: {
+                          id: matchedVendor.id,
+                          full_name: matchedVendor.full_name || matchedVendor.company_name || "مورد معتمد",
+                          company_name: matchedVendor.company_name || matchedVendor.full_name || "مورد معتمد",
+                          phone: matchedVendor.phone || q.profiles?.phone || "",
+                          city: matchedVendor.city || "",
+                          district: matchedVendor.district || "",
+                          address: matchedVendor.address || "",
+                          tax_number: matchedVendor.tax_number || q.profiles?.tax_number || "",
+                          commercial_register: matchedVendor.commercial_register || q.profiles?.commercial_register || "",
+                          national_address: matchedVendor.national_address || matchedVendor.address || q.profiles?.national_address || "",
+                          ref_code: matchedVendor.ref_code || q.profiles?.ref_code || "",
+                          rating: matchedVendor.rating || 5.0,
+                        }
+                      };
+                    }
+                    return q;
+                  });
                   return {
                     ...r,
                     quotes: rQuotes.length > 0 ? rQuotes : (Array.isArray(r.quotes) ? r.quotes : []),

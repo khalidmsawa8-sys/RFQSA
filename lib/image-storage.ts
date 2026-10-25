@@ -18,8 +18,7 @@ export function persistBase64Image(dataUriOrUrl: string | null | undefined): str
     return dataUriOrUrl;
   }
 
-  // Check if it is a base64 data URI or raw base64 string
-  const base64Match = dataUriOrUrl.match(/^data:image\/([a-zA-Z0-9\+\-]+);base64,(.+)$/s);
+  const base64Match = dataUriOrUrl.match(/^data:image\/([a-zA-Z0-9\+\-]+);base64,([\s\S]+)$/);
 
   let ext = "jpg";
   let base64Data = "";

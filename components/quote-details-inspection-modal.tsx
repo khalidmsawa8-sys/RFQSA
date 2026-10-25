@@ -105,18 +105,66 @@ interface QuoteDetailsInspectionModalProps {
   quote: Quote | null;
   rfq: RFQ | null;
   clientProfile?: any;
+  platformSettings?: {
+    vat_percent?: number;
+    platform_commission_percent?: number;
+    vat_number?: string;
+    cr_number?: string;
+  };
   onAccept: (quote: Quote, selectedItems: QuoteItem[], acceptedGrandTotal: number, couponCode?: string) => void;
 }
 
-export function QuoteDetailsInspectionModal({
+export function QuoteDetailsInspectionModal(props: QuoteDetailsInspectionModalProps) {
+  if (!props.isOpen || !props.quote || !props.rfq) {
+    return null;
+  }
+
+  return (
+    <QuoteDetailsInspectionModalContent
+      {...props}
+      quote={props.quote}
+      rfq={props.rfq}
+    />
+  );
+}
+
+function QuoteDetailsInspectionModalContent({
   isOpen,
   onClose,
   quote,
   rfq,
   clientProfile,
+  platformSettings,
   onAccept,
-}: QuoteDetailsInspectionModalProps) {
-  if (!isOpen || !quote || !rfq) return null;
+}: QuoteDetailsInspectionModalProps & { quote: Quote; rfq: RFQ }) {
+  const [liveSettings, setLiveSettings] = useState({
+    vat_percent: platformSettings?.vat_percent ?? 15,
+    platform_commission_percent: platformSettings?.platform_commission_percent ?? 15,
+    client_platform_fee_percent: (platformSettings as any)?.client_platform_fee_percent ?? 5,
+    vendor_platform_fee_percent: (platformSettings as any)?.vendor_platform_fee_percent ?? 15,
+  });
+
+  useEffect(() => {
+    let isMounted = true;
+    async function loadSettings() {
+      try {
+        const res = await fetch("/api/v1/settings", { cache: "no-store" });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success && data.settings && isMounted) {
+            setLiveSettings({
+              vat_percent: Number(data.settings.vat_percent ?? 15),
+              platform_commission_percent: Number(data.settings.platform_commission_percent ?? 15),
+              client_platform_fee_percent: Number(data.settings.client_platform_fee_percent ?? data.settings.platform_commission_percent ?? 5),
+              vendor_platform_fee_percent: Number(data.settings.vendor_platform_fee_percent ?? 15),
+            });
+          }
+        }
+      } catch (e) {}
+    }
+    loadSettings();
+    return () => { isMounted = false; };
+  }, []);
 
   // Parse original RFQ items to merge images/details
   const rfqItems: RFQItem[] = useMemo(() => {
@@ -266,7 +314,10 @@ export function QuoteDetailsInspectionModal({
 
   // Calculate price for each item based on client selection
   const getItemEffectivePrice = (item: QuoteItem, index: number) => {
-    const sel = itemSelections[index];
+    const sel = itemSelections[index] || {
+      accepted: item.availability !== "unavailable" && item.part_type !== "unavailable",
+      chosenType: item.part_type === "commercial" ? "commercial" : "original",
+    };
     if (!sel || !sel.accepted) return 0;
     if (item.availability === "unavailable" || item.part_type === "unavailable") return 0;
 
@@ -300,8 +351,42 @@ export function QuoteDetailsInspectionModal({
     return { partsSubtotal: sub, acceptedItemsCount: count };
   }, [safeQuoteItems, itemSelections]);
 
-  // Delivery cost from quote
-  const deliveryCostNum = Number(quote.delivery_cost || 0);
+  // Determine if RFQ is branch pickup or delivery
+  const isPickupOrder = useMemo(() => {
+    let rfqExtra: any = {};
+    try {
+      const parsed = JSON.parse(rfq?.parts_description || "[]");
+      if (Array.isArray(parsed) && parsed.length > 0) rfqExtra = parsed[0] || {};
+    } catch {}
+
+    const fulfillment = (rfq as any)?.fulfillment_method || rfqExtra.fulfillmentMethod;
+    const deliveryMethod = (rfq as any)?.delivery_method || (rfq as any)?.delivery_type || rfqExtra.deliveryMethod;
+
+    if (fulfillment === "DELIVERY" || deliveryMethod === "delivery" || deliveryMethod === "shipping") {
+      return false;
+    }
+    if (
+      fulfillment === "BRANCH_PICKUP" ||
+      fulfillment === "SELF_PICKUP" ||
+      deliveryMethod === "pickup" ||
+      (rfq as any)?.is_pickup === true ||
+      (quote as any)?.delivery_method === "pickup"
+    ) {
+      return true;
+    }
+    return false;
+  }, [rfq, quote]);
+
+  // Delivery cost from quote (or default minimum platform fee 25 SAR if delivery order and quote delivery_cost was 0/null)
+  const deliveryCostNum = useMemo(() => {
+    if (isPickupOrder) return 0;
+    const rawCost = Number(quote.delivery_cost ?? (quote as any).delivery_fee);
+    if (!isNaN(rawCost) && rawCost > 0) return rawCost;
+    if (quote.delivery_snapshot?.delivery_fee_net && Number(quote.delivery_snapshot.delivery_fee_net) > 0) {
+      return Number(quote.delivery_snapshot.delivery_fee_net);
+    }
+    return 25; // Standard fleet base fee
+  }, [isPickupOrder, quote]);
 
   // Target-aware Discount Calculation (Scope: Delivery vs Subtotal)
   const {
@@ -310,6 +395,10 @@ export function QuoteDetailsInspectionModal({
     totalDiscount,
     effectiveDelivery,
     subtotalAfterDiscount,
+    platformCommission,
+    subtotalBeforeTax,
+    commissionPercent,
+    vatPercent,
     taxAmount,
     grandTotal,
   } = useMemo(() => {
@@ -336,10 +425,19 @@ export function QuoteDetailsInspectionModal({
       }
     }
 
+    const commissionRate = Number(
+      (liveSettings as any).client_platform_fee_percent ?? (quote as any)?.client_platform_fee_percent ?? (quote as any)?.platform_commission_percent ?? liveSettings.platform_commission_percent ?? 5
+    );
+    const vatRate = Number((quote as any)?.vat_percent ?? liveSettings.vat_percent ?? 15);
+
     const subAfter = Math.max(0, partsSubtotal - subDisc);
-    const tax = (subAfter * 15) / 100;
+    const commAmt = Number(((subAfter * commissionRate) / 100).toFixed(2));
     const effDeliv = Math.max(0, deliveryCostNum - delivDisc);
-    const total = subAfter + tax + effDeliv;
+    // Taxable base includes: Parts + Platform Commission + Delivery Fee
+    const taxableBase = Number((subAfter + commAmt + effDeliv).toFixed(2));
+    const subBeforeTax = taxableBase;
+    const tax = Number((Math.round(taxableBase * vatRate) / 100).toFixed(2));
+    const total = Number((subBeforeTax + tax).toFixed(2));
 
     return {
       subtotalDiscount: subDisc,
@@ -347,10 +445,14 @@ export function QuoteDetailsInspectionModal({
       totalDiscount: subDisc + delivDisc,
       effectiveDelivery: effDeliv,
       subtotalAfterDiscount: subAfter,
+      platformCommission: commAmt,
+      subtotalBeforeTax: subBeforeTax,
+      commissionPercent: commissionRate,
+      vatPercent: vatRate,
       taxAmount: tax,
       grandTotal: total,
     };
-  }, [appliedCoupon, partsSubtotal, deliveryCostNum]);
+  }, [appliedCoupon, partsSubtotal, deliveryCostNum, quote, liveSettings]);
 
   // Coupon Apply Handler (Checks live API + local fallback)
   const handleApplyCoupon = async () => {
@@ -394,13 +496,18 @@ export function QuoteDetailsInspectionModal({
     setCouponError(null);
   };
 
-  const vendorName = quote.profiles?.company_name || quote.profiles?.full_name || "مؤسسة قطع الغيار المعتمدة";
-  const rating = quote.avgRating ?? 5.0;
-  const quoteDate = new Date(quote.created_at).toLocaleDateString("ar-SA", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  });
+  const vendorName = quote?.profiles?.company_name || quote?.profiles?.full_name || (quote?.vendor_id ? `مورد (${quote.vendor_id})` : "مورد معتمد");
+  const rating = quote?.avgRating ?? 5.0;
+  const quoteDate = useMemo(() => {
+    if (!quote?.created_at) return new Date().toLocaleDateString("ar-SA");
+    const d = new Date(quote.created_at);
+    if (isNaN(d.getTime())) return new Date().toLocaleDateString("ar-SA");
+    return d.toLocaleDateString("ar-SA", {
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    });
+  }, [quote?.created_at]);
 
   const prepTimeText = useMemo(() => {
     if (quote.delivery_snapshot?.preparation_time?.text) {
@@ -463,12 +570,16 @@ export function QuoteDetailsInspectionModal({
                 vendorId: quote.vendor_id || "vendor-demo-id",
                 refCode: (quote.profiles as any)?.ref_code || "VND-501",
                 name: vendorName,
-                rating: rating || 5.0,
-                ordersCount: 512,
-                completedDeals: 2,
-                commitmentRate: "96%",
+                rating: rating || (quote.profiles as any)?.rating || 5.0,
+                ordersCount: (quote.profiles as any)?.orders_count ?? 512,
+                completedDeals: (quote.profiles as any)?.completed_deals ?? 2,
+                commitmentRate: (quote.profiles as any)?.commitment_rate || "96%",
                 memberSince: "2024",
-                isVerified: true,
+                isVerified: (quote.profiles as any)?.is_verified ?? true,
+                city: (quote.profiles as any)?.city,
+                phone: (quote.profiles as any)?.phone,
+                district: (quote.profiles as any)?.district,
+                address: (quote.profiles as any)?.address,
               });
             }}
             className="flex items-center gap-3.5 min-w-0 p-1.5 -m-1.5 rounded-2xl hover:bg-slate-800/80 transition-all cursor-pointer group/vendor"
@@ -877,11 +988,18 @@ export function QuoteDetailsInspectionModal({
                   </div>
                 )}
 
-                <div className="flex items-center justify-between text-blue-300">
-                  <span>ضريبة القيمة المضافة (15%):</span>
-                  <span className="font-mono font-bold">{taxAmount.toLocaleString("ar-SA", { minimumFractionDigits: 2 })} ر.س</span>
+                {/* Platform Fee Row (Added to parts before VAT) */}
+                <div className="flex items-center justify-between text-indigo-300 bg-indigo-950/40 p-2 rounded-xl border border-indigo-500/20">
+                  <span className="flex items-center gap-1.5 font-bold">
+                    <Receipt className="w-3.5 h-3.5 text-indigo-400" />
+                    <span>رسوم المنصة ({commissionPercent}%):</span>
+                  </span>
+                  <span className="font-mono font-black text-indigo-200">
+                    +{platformCommission.toLocaleString("ar-SA", { minimumFractionDigits: 2 })} ر.س
+                  </span>
                 </div>
 
+                {/* Delivery Fee */}
                 <div className="flex items-center justify-between text-emerald-300">
                   <span>رسوم التوصيل (أسطول رفق):</span>
                   <div className="flex items-center gap-1.5 font-mono font-bold">
@@ -908,6 +1026,20 @@ export function QuoteDetailsInspectionModal({
                     <span className="font-mono font-black">- {deliveryDiscount.toLocaleString("ar-SA", { minimumFractionDigits: 2 })} ر.س</span>
                   </div>
                 )}
+
+                {/* Subtotal Before Tax (Parts + Platform Fee + Delivery) */}
+                <div className="flex items-center justify-between text-slate-300 bg-slate-900/60 p-2 rounded-xl border border-slate-700/50">
+                  <span className="font-bold">الإجمالي قبل الضريبة:</span>
+                  <span className="font-mono font-bold text-white">
+                    {subtotalBeforeTax.toLocaleString("ar-SA", { minimumFractionDigits: 2 })} ر.س
+                  </span>
+                </div>
+
+                {/* 15% VAT on (Parts + Commission + Delivery) */}
+                <div className="flex items-center justify-between text-blue-300">
+                  <span>ضريبة القيمة المضافة ({vatPercent}% شامل التوصيل والعمولة):</span>
+                  <span className="font-mono font-bold">+{taxAmount.toLocaleString("ar-SA", { minimumFractionDigits: 2 })} ر.س</span>
+                </div>
               </div>
 
               <div className="pt-3 border-t border-slate-800 flex items-center justify-between">

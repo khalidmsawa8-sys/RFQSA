@@ -43,7 +43,7 @@ export async function GET(req: NextRequest) {
 
     let query = supabase
       .from("profiles")
-      .select("id, full_name, email, phone, role, role_id, custom_role, company_name, ref_code, tax_number, commercial_register, national_address, is_admin, admin_role, is_active, created_at")
+      .select("id, full_name, email, phone, role, role_id, custom_role, company_name, ref_code, tax_number, commercial_register, national_address, is_admin, admin_role, is_active, created_at, parent_user_id, parent_company_name")
       .order("created_at", { ascending: false });
 
     if (role && role !== "all") {
@@ -54,17 +54,106 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    const { data: profiles, error } = await query;
+    const { data: dbProfiles } = await query;
 
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+    // Load from profiles_db.json to merge any local or mock profiles
+    const DATA_DIR = path.join(process.cwd(), "data");
+    const PROFILES_FILE = path.join(DATA_DIR, "profiles_db.json");
+    let diskProfiles: any[] = [];
+    if (fs.existsSync(PROFILES_FILE)) {
+      try {
+        diskProfiles = JSON.parse(fs.readFileSync(PROFILES_FILE, "utf-8"));
+      } catch (e) {}
     }
 
-    let results = (profiles || []).map((p: any) => {
+    // Merge DB and Disk profiles without duplicates
+    const profilesMap = new Map<string, any>();
+    (dbProfiles || []).forEach((p: any) => {
+      if (p && p.id) profilesMap.set(p.id, p);
+    });
+    diskProfiles.forEach((p: any) => {
+      if (p && p.id) {
+        if (!profilesMap.has(p.id)) {
+          profilesMap.set(p.id, p);
+        } else {
+          const current = profilesMap.get(p.id);
+          profilesMap.set(p.id, { ...current, ...p });
+        }
+      }
+    });
+
+    // Check organization_members to enrich sub-users with parent vendor company_name and filter out revoked
+    const ORG_MEMBERS_FILE = path.join(DATA_DIR, "organization_members_db.json");
+    let orgMembers: any[] = [];
+    if (fs.existsSync(ORG_MEMBERS_FILE)) {
+      try {
+        orgMembers = JSON.parse(fs.readFileSync(ORG_MEMBERS_FILE, "utf-8"));
+      } catch (e) {}
+    }
+
+    try {
+      const { data: dbMembers } = await supabase.from("organization_members").select("*");
+      if (dbMembers && Array.isArray(dbMembers)) {
+        dbMembers.forEach((m: any) => {
+          if (!orgMembers.some((x: any) => x.id === m.id)) orgMembers.push(m);
+        });
+      }
+    } catch (e) {}
+
+    // Track revoked / deleted user IDs
+    const revokedUserIds = new Set<string>();
+    const revokedEmails = new Set<string>();
+    orgMembers.forEach((m: any) => {
+      if (m.status === "revoked") {
+        if (m.user_id) revokedUserIds.add(m.user_id);
+        if (m.email) revokedEmails.add(m.email.toLowerCase().trim());
+      }
+    });
+
+    const allMerged = Array.from(profilesMap.values()).filter((p: any) => {
+      if (revokedUserIds.has(p.id)) return false;
+      if (p.email && revokedEmails.has(p.email.toLowerCase().trim())) return false;
+      return true;
+    });
+
+    // Build map of vendor owners by ID and organization
+    const vendorOwnersMap = new Map<string, any>();
+    allMerged.forEach((p: any) => {
+      if (p.role === "vendor" && (!p.role_id || p.role_id === "vendor_owner") && p.company_name) {
+        vendorOwnersMap.set(p.id, p);
+        if (p.email) vendorOwnersMap.set(p.email.toLowerCase().trim(), p);
+      }
+    });
+
+    let results = allMerged.map((p: any) => {
       const refCode = p.ref_code || (p.is_admin || p.role === "admin" ? "ADM-001" : `USR-${p.id.slice(0, 5)}`);
+
+      // Resolve company name for sub-users
+      let companyName = p.company_name;
+      let parentCompanyName = p.parent_company_name;
+
+      const matchingMember = orgMembers.find(
+        (m: any) => m.user_id === p.id || (m.email && p.email && m.email.toLowerCase() === p.email.toLowerCase())
+      );
+      const parentVendorId = p.parent_user_id || matchingMember?.invited_by;
+
+      if (parentVendorId) {
+        const parentVendor = vendorOwnersMap.get(parentVendorId) || allMerged.find((v: any) => v.id === parentVendorId);
+        if (parentVendor?.company_name) {
+          companyName = parentVendor.company_name;
+          parentCompanyName = parentVendor.company_name;
+        }
+      }
+
+      if ((!companyName || companyName === p.full_name || companyName === "عضو فريق العمل" || companyName === "موظف منشأة") && matchingMember?.company_name) {
+        companyName = matchingMember.company_name;
+      }
+
       return {
         ...p,
         ref_code: refCode,
+        company_name: companyName || (p.role === "vendor" ? "مؤسسة مورد معتمد" : ""),
+        parent_company_name: parentCompanyName || companyName || "",
         email: p.email || `${refCode.toLowerCase()}@rfqsa.tech`,
         created_at: p.created_at || "2026-08-01T08:00:00.000Z",
       };

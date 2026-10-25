@@ -46,11 +46,30 @@ class ApiResponse<T> {
       rawData = json;
     }
 
+    T? parsedData;
+    String? parseError;
+
+    if (rawData != null && fromJsonT != null) {
+      try {
+        parsedData = fromJsonT(rawData);
+      } catch (err) {
+        parseError = err.toString();
+      }
+    } else if (rawData != null) {
+      try {
+        parsedData = rawData as T?;
+      } catch (err) {
+        parseError = err.toString();
+      }
+    }
+
+    final bool hasError = parseError != null || (!isSuccess && json['error'] != null);
+
     return ApiResponse<T>(
-      success: isSuccess,
+      success: !hasError && isSuccess,
       message: json['message'] as String?,
-      error: json['error']?.toString() ?? json['message']?.toString(),
-      data: (rawData != null && fromJsonT != null) ? fromJsonT(rawData) : rawData as T?,
+      error: parseError ?? json['error']?.toString() ?? json['message']?.toString(),
+      data: parsedData,
       statusCode: statusCode,
     );
   }

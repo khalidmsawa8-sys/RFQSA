@@ -274,25 +274,74 @@ export function DealPageClient({
 
   // Comprehensive Pickup Detection
   const effectiveIsPickup = useMemo(() => {
-    if (isPickup) return true;
-    const dm =
-      order?.delivery_method ||
-      order?.delivery_type ||
-      (order as any)?.is_pickup ||
-      (order as any)?.rfqs?.delivery_method ||
-      (order as any)?.rfqs?.delivery_type ||
-      (deal as any)?.delivery_method ||
-      (quote as any)?.delivery_method;
-    if (dm === "pickup") return true;
-    const dl = String(
+    let rfqExtra: any = {};
+    const partsDesc = (order as any)?.rfqs?.parts_description || (order as any)?.parts_description;
+    if (partsDesc) {
+      try {
+        const parsed = typeof partsDesc === "string" ? JSON.parse(partsDesc) : partsDesc;
+        if (Array.isArray(parsed) && parsed.length > 0) rfqExtra = parsed[0] || {};
+      } catch {}
+    }
+
+    const locText = String(
       (order as any)?.rfqs?.delivery_location ||
       (order as any)?.delivery_location ||
       (order as any)?.pickup_location ||
+      rfqExtra?.deliveryLocation ||
       ""
     );
-    if (dl.includes("فرع") || dl.includes("استلام")) return true;
-    if ((order as any)?.pickup_branch || (order as any)?.pickup_branch_id) return true;
-    if (Number(quote?.delivery_cost ?? order?.delivery_fee ?? 0) === 0 && (dl.includes("فرع") || dl.includes("استلام") || (order as any)?.pickup_branch)) return true;
+
+    const hasPickupPhrase =
+      locText.includes("استلام من فرع") ||
+      locText.includes("استلام من الفرع") ||
+      locText.includes("استلام من معرض") ||
+      locText.includes("استلام يدوي") ||
+      locText === "استلام من فرع المورد";
+
+    const fulfillmentMethod =
+      (order as any)?.fulfillment_method ||
+      (order as any)?.fulfillment_type ||
+      (order as any)?.rfqs?.fulfillment_method ||
+      rfqExtra?.fulfillmentMethod ||
+      (deal as any)?.fulfillment_method;
+
+    const dm =
+      (order as any)?.delivery_method ||
+      (order as any)?.delivery_type ||
+      (order as any)?.shipping_method ||
+      (order as any)?.rfqs?.delivery_method ||
+      (order as any)?.rfqs?.delivery_type ||
+      rfqExtra?.deliveryMethod ||
+      (deal as any)?.delivery_method ||
+      (quote as any)?.delivery_method;
+
+    const deliveryFeeVal = Number((order as any)?.delivery_fee ?? (order as any)?.delivery_cost ?? (deal as any)?.delivery_fee ?? 0);
+
+    // 1. Strict Delivery Check: If explicitly delivery or delivery fee > 0, it is 100% DELIVERY
+    if (
+      fulfillmentMethod === "DELIVERY" ||
+      dm === "delivery" ||
+      dm === "shipping" ||
+      (order as any)?.is_pickup === false ||
+      deliveryFeeVal > 0
+    ) {
+      return false;
+    }
+
+    // 2. Pickup Check: Only if explicitly pickup
+    if (
+      fulfillmentMethod === "BRANCH_PICKUP" ||
+      fulfillmentMethod === "SELF_PICKUP" ||
+      dm === "pickup" ||
+      (order as any)?.is_pickup === true ||
+      (order as any)?.rfqs?.is_pickup === true ||
+      (order as any)?.pickup_branch ||
+      hasPickupPhrase
+    ) {
+      return true;
+    }
+
+    if (isPickup) return true;
     return false;
   }, [isPickup, order, deal, quote]);
 
@@ -300,6 +349,29 @@ export function DealPageClient({
   const [effectiveRole, setEffectiveRole] = useState<"client" | "vendor" | "courier" | "admin">(
     (userRole as any) || "client"
   );
+
+  const [platformSettings, setPlatformSettings] = useState({
+    vat_percent: 15,
+    platform_commission_percent: 3,
+    vat_number: "310987654300003",
+    cr_number: "1010789456",
+  });
+
+  useEffect(() => {
+    fetch("/api/v1/settings", { cache: "no-store" })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success && data.settings) {
+          setPlatformSettings({
+            vat_percent: Number(data.settings.vat_percent ?? 15),
+            platform_commission_percent: Number(data.settings.platform_commission_percent ?? 3),
+            vat_number: data.settings.vat_number || "310987654300003",
+            cr_number: data.settings.cr_number || "1010789456",
+          });
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (typeof document !== "undefined") {
@@ -537,29 +609,86 @@ export function DealPageClient({
   // Financial calculations from REAL database data
   const totalItemsCount = useMemo(() => items.reduce((acc, it) => acc + (it.quantity || 1), 0), [items]);
   const subtotalPartsPrice = useMemo(() => items.reduce((acc, it) => acc + Number(it.line_total || it.unit_price * (it.quantity || 1)), 0), [items]);
-  const deliveryFee = quote?.delivery_cost != null ? Number(quote.delivery_cost) : (order?.delivery_fee != null ? Number(order.delivery_fee) : 0);
+  const deliveryFee = effectiveIsPickup
+    ? 0
+    : quote?.delivery_cost != null
+    ? Number(quote.delivery_cost)
+    : (order?.delivery_fee != null ? Number(order.delivery_fee) : 0);
   
-  // Tax calculation (15% VAT on real amounts)
+  const clientFeePercent = Number(
+    (order as any)?.client_platform_fee_percent ??
+    (order as any)?.platform_commission_percent ??
+    (platformSettings as any).client_platform_fee_percent ??
+    platformSettings.platform_commission_percent ??
+    1.5
+  );
+  const vendorFeePercent = Number(
+    (order as any)?.vendor_platform_fee_percent ??
+    (platformSettings as any).vendor_platform_fee_percent ??
+    5
+  );
+
+  const currentVatRate = (platformSettings.vat_percent || 15) / 100;
+  const currentCommissionRate = clientFeePercent / 100;
+
+  // Platform Fee (Client side)
+  const commissionAmount = useMemo(() => {
+    if ((order as any)?.client_platform_fee != null && Number((order as any).client_platform_fee) > 0) {
+      return Number((order as any).client_platform_fee);
+    }
+    if ((order as any)?.platform_commission != null && Number((order as any).platform_commission) > 0) {
+      return Number((order as any).platform_commission);
+    }
+    return Number((subtotalPartsPrice * currentCommissionRate).toFixed(2));
+  }, [order, subtotalPartsPrice, currentCommissionRate]);
+
+  // Subtotal before tax (Parts + Client Platform Fee)
+  const subtotalBeforeTax = useMemo(() => {
+    return Number((subtotalPartsPrice + commissionAmount).toFixed(2));
+  }, [subtotalPartsPrice, commissionAmount]);
+
+  // Vendor dues calculations
+  const vendorDeductedFee = useMemo(() => {
+    if ((order as any)?.vendor_platform_fee != null && Number((order as any).vendor_platform_fee) > 0) {
+      return Number((order as any).vendor_platform_fee);
+    }
+    return Number(((subtotalPartsPrice * vendorFeePercent) / 100).toFixed(2));
+  }, [order, subtotalPartsPrice, vendorFeePercent]);
+
+  const vendorNetParts = useMemo(() => {
+    return Math.max(0, Number((subtotalPartsPrice - vendorDeductedFee).toFixed(2)));
+  }, [subtotalPartsPrice, vendorDeductedFee]);
+
+  // Tax calculation (dynamic VAT on real amounts: parts + platform fee + delivery)
+  const taxableBase = useMemo(() => {
+    return Number((subtotalPartsPrice + commissionAmount + deliveryFee).toFixed(2));
+  }, [subtotalPartsPrice, commissionAmount, deliveryFee]);
+
   const priceBeforeTax = useMemo(() => {
     if (order?.total_price && Number(order.total_price) > 0) {
-      return Math.round((Number(order.total_price) - deliveryFee) / 1.15);
+      return currentVatRate > 0
+        ? Math.round((Number(order.total_price) - deliveryFee - commissionAmount) / (1 + currentVatRate))
+        : (Number(order.total_price) - deliveryFee - commissionAmount);
     }
-    return Math.round(subtotalPartsPrice / 1.15);
-  }, [order, subtotalPartsPrice, deliveryFee]);
+    return subtotalPartsPrice;
+  }, [order, subtotalPartsPrice, deliveryFee, commissionAmount, currentVatRate]);
 
   const vatAmount = useMemo(() => {
-    if (order?.total_price && Number(order.total_price) > 0) {
-      return Math.max(0, Number(order.total_price) - deliveryFee - priceBeforeTax);
+    if ((order as any)?.tax_amount != null && Number((order as any).tax_amount) > 0) {
+      return Number((order as any).tax_amount);
     }
-    return Math.round(priceBeforeTax * 0.15);
-  }, [order, priceBeforeTax, deliveryFee]);
+    if (order?.total_price && Number(order.total_price) > 0) {
+      return Math.max(0, Number(order.total_price) - deliveryFee - subtotalPartsPrice - commissionAmount);
+    }
+    return Number((taxableBase * currentVatRate).toFixed(2));
+  }, [order, taxableBase, subtotalPartsPrice, deliveryFee, commissionAmount, currentVatRate]);
 
   const grandTotal = useMemo(() => {
     if (order?.total_price && Number(order.total_price) > 0) {
       return Number(order.total_price);
     }
-    return priceBeforeTax + deliveryFee + vatAmount;
-  }, [order, priceBeforeTax, deliveryFee, vatAmount]);
+    return Number((taxableBase + vatAmount).toFixed(2));
+  }, [order, taxableBase, vatAmount]);
 
   const canModifyItems = liveStatus === "preparing" || liveStatus === "confirmed";
 
@@ -1442,19 +1571,62 @@ export function DealPageClient({
               {/* Breakdown Rows */}
               <div className="space-y-3 text-xs sm:text-sm pt-1">
                 <div className="flex items-baseline justify-between text-gray-600">
-                  <span>السعر قبل الضريبة</span>
-                  <span className="font-semibold text-gray-900">{priceBeforeTax.toLocaleString("ar-SA")} ر.س</span>
+                  <span>المجموع الفرعي للقطع</span>
+                  <span className="font-semibold text-gray-900">{subtotalPartsPrice.toLocaleString("ar-SA")} ر.س</span>
+                </div>
+
+                {clientFeePercent > 0 && (
+                  <div className="flex items-baseline justify-between text-indigo-700 bg-indigo-50/70 px-2.5 py-1.5 rounded-xl border border-indigo-100 font-semibold text-xs">
+                    <span className="flex items-center gap-1.5">
+                      <Receipt className="w-3.5 h-3.5 text-indigo-600" />
+                      <span>رسوم المنصة ({clientFeePercent}%)</span>
+                    </span>
+                    <span className="font-bold text-indigo-950">+{commissionAmount.toLocaleString("ar-SA", { minimumFractionDigits: 2 })} ر.س</span>
+                  </div>
+                )}
+
+                <div className="flex items-baseline justify-between text-slate-700 bg-slate-50 px-2.5 py-1.5 rounded-xl border border-slate-200/80 font-bold text-xs">
+                  <span>الإجمالي قبل الضريبة</span>
+                  <span className="font-mono text-slate-900">{subtotalBeforeTax.toLocaleString("ar-SA", { minimumFractionDigits: 2 })} ر.س</span>
                 </div>
 
                 <div className="flex items-baseline justify-between text-gray-600">
-                  <span>رسوم التوصيل</span>
+                  <span>رسوم التوصيل {effectiveIsPickup ? "(استلام من الفرع)" : ""}</span>
                   <span className="font-semibold text-gray-900">{deliveryFee.toLocaleString("ar-SA")} ر.س</span>
                 </div>
 
                 <div className="flex items-baseline justify-between text-gray-600">
-                  <span>ضريبة القيمة المضافة (15%)</span>
-                  <span className="font-semibold text-gray-900">{vatAmount.toLocaleString("ar-SA")} ر.س</span>
+                  <span>ضريبة القيمة المضافة ({platformSettings.vat_percent}%)</span>
+                  <span className="font-semibold text-gray-900">+{vatAmount.toLocaleString("ar-SA", { minimumFractionDigits: 2 })} ر.س</span>
                 </div>
+
+                {effectiveRole === "vendor" && (
+                  <div className="bg-emerald-50/80 border border-emerald-200/90 rounded-2xl p-3.5 space-y-2 my-2">
+                    <div className="flex items-center justify-between text-xs font-bold text-emerald-950 border-b border-emerald-200/60 pb-1.5">
+                      <span className="flex items-center gap-1.5">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-700" />
+                        <span>تفاصيل مستحقات المورد</span>
+                      </span>
+                      <span className="text-[10px] font-mono text-emerald-800">
+                        رسوم المنصة: {vendorFeePercent}%
+                      </span>
+                    </div>
+                    <div className="space-y-1.5 text-xs">
+                      <div className="flex items-baseline justify-between text-slate-700">
+                        <span>قيمة القطع:</span>
+                        <span className="font-mono font-bold text-slate-900">{subtotalPartsPrice.toLocaleString("ar-SA", { minimumFractionDigits: 2 })} ر.س</span>
+                      </div>
+                      <div className="flex items-baseline justify-between text-amber-800">
+                        <span>رسوم المنصة المخصومة ({vendorFeePercent}%):</span>
+                        <span className="font-mono font-bold">-{vendorDeductedFee.toLocaleString("ar-SA", { minimumFractionDigits: 2 })} ر.س</span>
+                      </div>
+                      <div className="flex items-baseline justify-between text-emerald-900 font-extrabold pt-1.5 border-t border-emerald-200/70 text-sm">
+                        <span>صافي مستحقات المورد:</span>
+                        <span className="font-mono font-black">{vendorNetParts.toLocaleString("ar-SA", { minimumFractionDigits: 2 })} ر.س</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {/* Dashed Separator */}
                 <div className="border-t border-dashed border-gray-200 my-3" />
@@ -1480,6 +1652,8 @@ export function DealPageClient({
                   </div>
 
                   <InvoicePDFExport
+                    platformSettings={platformSettings}
+                    userRole={effectiveRole === "vendor" ? "vendor" : "client"}
                     invoice={{
                       id: deal.order_id,
                       invoice_number: generateCanonicalInvoiceNumber(deal.order_id),
@@ -1487,7 +1661,10 @@ export function DealPageClient({
                       total_amount: grandTotal,
                       subtotal: priceBeforeTax,
                       delivery_cost: deliveryFee,
+                      platform_commission: commissionAmount,
+                      platform_commission_percent: platformSettings.platform_commission_percent,
                       tax_amount: vatAmount,
+                      vat_percent: platformSettings.vat_percent,
                       status: "paid",
                       created_at: order?.created_at || new Date().toISOString(),
                     }}
@@ -1951,15 +2128,25 @@ export function DealPageClient({
 
           {/* Action Buttons at the Bottom */}
           <div className="mt-5 space-y-2">
-            <a
-              href={`https://wa.me/${driver.phone.replace(/^0/, "966")}?text=${encodeURIComponent(`مرحباً ${driver.name}، بخصوص توصيل الطلب #${displayOrderId}`)}`}
-              target="_blank"
-              rel="noreferrer"
-              className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl bg-[#1B4D3E] hover:bg-[#14392E] text-white text-xs sm:text-sm font-bold shadow-md shadow-emerald-950/15 active:scale-[0.98] transition-all"
-            >
-              <MessageCircle className="w-4 h-4" />
-              <span>مراسلة</span>
-            </a>
+            <div className="grid grid-cols-2 gap-2">
+              <a
+                href={`tel:${driver.phone}`}
+                className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white text-xs sm:text-sm font-bold shadow-md shadow-blue-900/15 active:scale-[0.98] transition-all cursor-pointer"
+              >
+                <Phone className="w-4 h-4" />
+                <span>اتصال هاتفي</span>
+              </a>
+
+              <a
+                href={`https://wa.me/${driver.phone.replace(/^0/, "966")}?text=${encodeURIComponent(`مرحباً ${driver.name}، بخصوص توصيل الطلب #${displayOrderId}`)}`}
+                target="_blank"
+                rel="noreferrer"
+                className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl bg-[#1B4D3E] hover:bg-[#14392E] text-white text-xs sm:text-sm font-bold shadow-md shadow-emerald-950/15 active:scale-[0.98] transition-all cursor-pointer"
+              >
+                <MessageCircle className="w-4 h-4" />
+                <span>مراسلة واتساب</span>
+              </a>
+            </div>
 
             <button
               type="button"

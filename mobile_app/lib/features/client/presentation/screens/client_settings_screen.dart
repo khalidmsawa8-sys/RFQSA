@@ -31,6 +31,14 @@ class _ClientSettingsScreenState extends State<ClientSettingsScreen> {
   String _phone = '0501234567';
   String _email = 'procurement@national-procurement.sa';
 
+  late final TextEditingController _orgNameCtrl = TextEditingController(text: _orgName);
+  late final TextEditingController _crCtrl = TextEditingController(text: _crNumber);
+  late final TextEditingController _taxCtrl = TextEditingController(text: _taxNumber);
+  late final TextEditingController _addressCtrl = TextEditingController(text: _address);
+  late final TextEditingController _phoneCtrl = TextEditingController(text: _phone);
+  late final TextEditingController _emailCtrl = TextEditingController(text: _email);
+  bool _isSavingOrg = false;
+
   // Vendor Specialization State
   final List<String> _allBrands = [
     'تويوتا (Toyota)', 'نيسان (Nissan)', 'هيونداي (Hyundai)', 'كيا (Kia)', 'فورد (Ford)',
@@ -95,6 +103,17 @@ class _ClientSettingsScreenState extends State<ClientSettingsScreen> {
     _fetchSettings();
   }
 
+  @override
+  void dispose() {
+    _orgNameCtrl.dispose();
+    _crCtrl.dispose();
+    _taxCtrl.dispose();
+    _addressCtrl.dispose();
+    _phoneCtrl.dispose();
+    _emailCtrl.dispose();
+    super.dispose();
+  }
+
   Future<void> _fetchSettings() async {
     setState(() => _isLoading = true);
     try {
@@ -103,16 +122,73 @@ class _ClientSettingsScreenState extends State<ClientSettingsScreen> {
         final data = res.data['data'];
         if (data != null && data['organization'] != null) {
           final org = data['organization'];
-          _orgName = org['name'] ?? _orgName;
-          _crNumber = org['cr_number'] ?? _crNumber;
+          _orgName = org['name'] ?? org['company_name'] ?? _orgName;
+          _crNumber = org['cr_number'] ?? org['commercial_register'] ?? _crNumber;
           _taxNumber = org['tax_number'] ?? _taxNumber;
-          _address = org['address'] ?? _address;
+          _address = org['address'] ?? org['national_address'] ?? _address;
           _phone = org['phone'] ?? _phone;
+          _email = org['email'] ?? _email;
+
+          _orgNameCtrl.text = _orgName;
+          _crCtrl.text = _crNumber;
+          _taxCtrl.text = _taxNumber;
+          _addressCtrl.text = _address;
+          _phoneCtrl.text = _phone;
+          _emailCtrl.text = _email;
         }
       }
     } catch (_) {}
     finally {
       if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _saveOrganizationProfile() async {
+    setState(() => _isSavingOrg = true);
+    try {
+      final res = await ApiClient.instance.put('/v1/organization', data: {
+        'name': _orgNameCtrl.text.trim(),
+        'company_name': _orgNameCtrl.text.trim(),
+        'cr_number': _crCtrl.text.trim(),
+        'commercial_register': _crCtrl.text.trim(),
+        'tax_number': _taxCtrl.text.trim(),
+        'address': _addressCtrl.text.trim(),
+        'national_address': _addressCtrl.text.trim(),
+        'phone': _phoneCtrl.text.trim(),
+        'email': _emailCtrl.text.trim(),
+      });
+
+      if (res.data != null && (res.data['success'] == true || res.statusCode == 200)) {
+        setState(() {
+          _orgName = _orgNameCtrl.text.trim();
+          _crNumber = _crCtrl.text.trim();
+          _taxNumber = _taxCtrl.text.trim();
+          _address = _addressCtrl.text.trim();
+          _phone = _phoneCtrl.text.trim();
+          _email = _emailCtrl.text.trim();
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('✅ تم حفظ وتحديث بيانات المنشأة والسجل التجاري بنجاح في الموقع والتطبيق'),
+              backgroundColor: Color(0xFF059669),
+            ),
+          );
+        }
+      } else {
+        throw Exception(res.data?['error'] ?? 'فشل حفظ التعديلات');
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('تعذر حفظ التعديلات: ${e.toString()}'),
+            backgroundColor: const Color(0xFFDC2626),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSavingOrg = false);
     }
   }
 
@@ -548,32 +624,67 @@ class _ClientSettingsScreenState extends State<ClientSettingsScreen> {
           ),
           const SizedBox(height: 14),
 
-          _buildFieldTile('اسم الكيان القانوني', _orgName, Icons.domain_rounded),
+          _buildEditableFieldTile('اسم الكيان القانوني', _orgNameCtrl, Icons.domain_rounded),
           const SizedBox(height: 10),
-          _buildFieldTile('رقم السجل التجاري (CR)', _crNumber, Icons.badge_outlined),
+          _buildEditableFieldTile('رقم السجل التجاري (CR)', _crCtrl, Icons.badge_outlined, keyboardType: TextInputType.number),
           const SizedBox(height: 10),
-          _buildFieldTile('الرقم الضريبي الموحد (VAT)', _taxNumber, Icons.receipt_long_outlined),
+          _buildEditableFieldTile('الرقم الضريبي الموحد (VAT)', _taxCtrl, Icons.receipt_long_outlined, keyboardType: TextInputType.number),
           const SizedBox(height: 10),
-          _buildFieldTile('العنوان الوطني المعتمد', _address, Icons.location_on_outlined),
+          _buildEditableFieldTile('العنوان الوطني المعتمد', _addressCtrl, Icons.location_on_outlined),
           const SizedBox(height: 10),
-          _buildFieldTile('رقم الجوال الرسمي', _phone, Icons.phone_android_rounded),
+          _buildEditableFieldTile('رقم الجوال الرسمي', _phoneCtrl, Icons.phone_android_rounded, keyboardType: TextInputType.phone),
           const SizedBox(height: 10),
-          _buildFieldTile('البريد الإلكتروني للفوترة', _email, Icons.email_outlined),
+          _buildEditableFieldTile('البريد الإلكتروني للفوترة', _emailCtrl, Icons.email_outlined, keyboardType: TextInputType.emailAddress),
 
           const SizedBox(height: 16),
           ElevatedButton.icon(
-            onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('✅ تم حفظ بيانات المنشأة وتحديثها في قاعدة البيانات بنجاح'), backgroundColor: Color(0xFF059669)),
-              );
-            },
-            icon: const Icon(Icons.save_rounded, size: 16),
-            label: const Text('حفظ التعديلات', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900)),
+            onPressed: _isSavingOrg ? null : _saveOrganizationProfile,
+            icon: _isSavingOrg
+                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                : const Icon(Icons.save_rounded, size: 16),
+            label: Text(_isSavingOrg ? 'جاري الحفظ والمزامنة...' : 'حفظ التعديلات', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900)),
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF0F172A),
               foregroundColor: Colors.white,
-              minimumSize: const Size(double.infinity, 42),
+              minimumSize: const Size(double.infinity, 44),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEditableFieldTile(String label, TextEditingController controller, IconData icon, {TextInputType keyboardType = TextInputType.text}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Icon(icon, size: 18, color: const Color(0xFF2563EB)),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label, style: const TextStyle(fontSize: 10, color: Color(0xFF64748B), fontWeight: FontWeight.bold)),
+                const SizedBox(height: 2),
+                TextFormField(
+                  controller: controller,
+                  keyboardType: keyboardType,
+                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w900, color: Color(0xFF0F172A)),
+                  decoration: const InputDecoration(
+                    isDense: true,
+                    contentPadding: EdgeInsets.symmetric(vertical: 4),
+                    border: InputBorder.none,
+                  ),
+                ),
+              ],
             ),
           ),
         ],

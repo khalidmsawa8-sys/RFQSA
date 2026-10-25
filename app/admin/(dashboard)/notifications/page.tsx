@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import {
   Bell,
   Send,
@@ -37,6 +37,12 @@ import {
   FileSpreadsheet,
   Check,
   ChevronDown,
+  Calendar,
+  Mail,
+  MessageCircle,
+  Play,
+  Pause,
+  Sliders,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -61,6 +67,35 @@ interface NotificationItem {
   rfq_id?: string;
   delivery_id?: string;
   source?: string;
+}
+
+interface ScheduledCampaignRecord {
+  id: string;
+  title: string;
+  message: string;
+  type: string;
+  target: "all" | "clients" | "vendors" | "couriers" | "user";
+  target_user_id?: string;
+  priority: "normal" | "important" | "urgent";
+  action_url?: string;
+  channels: {
+    in_app: boolean;
+    push: boolean;
+    email: boolean;
+    whatsapp: boolean;
+  };
+  scheduled_for: string;
+  batch_size: number;
+  interval_seconds: number;
+  status: "pending" | "processing" | "completed" | "cancelled" | "failed";
+  total_recipients: number;
+  processed_count: number;
+  batches_total: number;
+  batches_completed: number;
+  current_recipient_index: number;
+  last_batch_at?: string | null;
+  created_at: string;
+  errors?: string[];
 }
 
 interface UserProfile {
@@ -161,6 +196,24 @@ export default function AdminNotificationsPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [visibleCount, setVisibleCount] = useState(10);
 
+  // View Navigation: "stream" (Live Stream) vs "scheduled" (Throttled Scheduled Campaigns)
+  const [activeViewTab, setActiveViewTab] = useState<"stream" | "scheduled">("stream");
+
+  // Scheduled Campaigns State
+  const [scheduledCampaigns, setScheduledCampaigns] = useState<ScheduledCampaignRecord[]>([]);
+  const [loadingCampaigns, setLoadingCampaigns] = useState(false);
+  const [processingCampaignId, setProcessingCampaignId] = useState<string | null>(null);
+
+  // Broadcast Mode & Scheduling Configuration
+  const [broadcastMode, setBroadcastMode] = useState<"immediate" | "scheduled">("immediate");
+  const [scheduledDatetime, setScheduledDatetime] = useState<string>(() => {
+    const nextHour = new Date(Date.now() + 60 * 60 * 1000);
+    nextHour.setMinutes(Math.ceil(nextHour.getMinutes() / 15) * 15, 0, 0);
+    return nextHour.toISOString().slice(0, 16);
+  });
+  const [batchSize, setBatchSize] = useState<number>(50);
+  const [intervalSeconds, setIntervalSeconds] = useState<number>(30);
+
   // Form State
   const [title, setTitle] = useState("");
   const [message, setMessage] = useState("");
@@ -169,15 +222,20 @@ export default function AdminNotificationsPage() {
   const [targetUserId, setTargetUserId] = useState("");
   const [priority, setPriority] = useState<"normal" | "important" | "urgent">("normal");
   const [actionUrl, setActionUrl] = useState("");
-  const [sendPush, setSendPush] = useState(true);
+  
+  // Multi-Channel Delivery Options
   const [sendInApp, setSendInApp] = useState(true);
+  const [sendPush, setSendPush] = useState(true);
+  const [sendEmail, setSendEmail] = useState(true);
+  const [sendWhatsapp, setSendWhatsapp] = useState(true);
+
   const [userSearchTerm, setUserSearchTerm] = useState("");
 
   // Inspect Modal State
   const [inspectItem, setInspectItem] = useState<NotificationItem | null>(null);
 
   // Load Notifications & Users
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setLoading(true);
     try {
       const res = await fetch("/api/v1/admin/notifications");
@@ -196,11 +254,30 @@ export default function AdminNotificationsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  // Load Scheduled Campaigns
+  const loadScheduledCampaigns = useCallback(async () => {
+    setLoadingCampaigns(true);
+    try {
+      const res = await fetch("/api/v1/admin/notifications/scheduled");
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success) {
+          setScheduledCampaigns(data.campaigns || []);
+        }
+      }
+    } catch (e) {
+      console.error("Failed to load scheduled campaigns:", e);
+    } finally {
+      setLoadingCampaigns(false);
+    }
+  }, []);
 
   useEffect(() => {
     loadData();
-  }, []);
+    loadScheduledCampaigns();
+  }, [loadData, loadScheduledCampaigns]);
 
   // Delete Notification Handler
   const handleDeleteNotification = async (id: string) => {
@@ -232,7 +309,77 @@ export default function AdminNotificationsPage() {
     }
   };
 
-  // Handle Send Notification
+  // Process Due Batches Now
+  const handleProcessDueBatchesNow = async () => {
+    setProcessingCampaignId("all");
+    try {
+      const res = await fetch("/api/v1/admin/notifications/scheduled", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "process_now" }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSuccessMessage(`⚡ ${data.message}`);
+        await loadScheduledCampaigns();
+        await loadData();
+        setTimeout(() => setSuccessMessage(""), 5000);
+      } else {
+        alert(data.error || "فشل معالجة الدفعات");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("حدث خطأ أثناء الاتصال بالسيرفر");
+    } finally {
+      setProcessingCampaignId(null);
+    }
+  };
+
+  // Cancel Scheduled Campaign
+  const handleCancelCampaign = async (campaignId: string) => {
+    if (!window.confirm("هل ترغب في إيقاف وإلغاء هذه الحملة المجدولة؟")) return;
+    try {
+      const res = await fetch("/api/v1/admin/notifications/scheduled", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "cancel", campaign_id: campaignId }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSuccessMessage("تم إلغاء الحملة المجدولة بنجاح");
+        await loadScheduledCampaigns();
+        setTimeout(() => setSuccessMessage(""), 4000);
+      } else {
+        alert(data.error || "فشل إلغاء الحملة");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("حدث خطأ أثناء محاولة إلغاء الحملة");
+    }
+  };
+
+  // Delete Scheduled Campaign
+  const handleDeleteCampaign = async (campaignId: string) => {
+    if (!window.confirm("هل أنت متأكد من حذف هذه الحملة نهائياً من قائمة الجدولة؟")) return;
+    try {
+      const res = await fetch(`/api/v1/admin/notifications/scheduled?id=${campaignId}`, {
+        method: "DELETE",
+      });
+      const data = await res.json();
+      if (data.success) {
+        setScheduledCampaigns((prev) => prev.filter((c) => c.id !== campaignId));
+        setSuccessMessage("تم حذف سجل الحملة بنجاح");
+        setTimeout(() => setSuccessMessage(""), 3500);
+      } else {
+        alert(data.error || "فشل حذف الحملة");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("حدث خطأ أثناء محاولة حذف الحملة");
+    }
+  };
+
+  // Handle Send Notification (Immediate or Scheduled with Throttling)
   const handleSendNotification = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim() || !message.trim()) {
@@ -245,41 +392,91 @@ export default function AdminNotificationsPage() {
       return;
     }
 
+    if (!sendInApp && !sendPush && !sendEmail && !sendWhatsapp) {
+      alert("يرجى اختيار قناة تسليم واحدة على الأقل (جرس المنصة، دفع للجوال، بريد إلكتروني، أو واتساب).");
+      return;
+    }
+
     setSubmitting(true);
     try {
-      const res = await fetch("/api/v1/admin/notifications", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: title.trim(),
-          message: message.trim(),
-          type,
-          target,
-          target_user_id: target === "user" ? targetUserId : undefined,
-          priority,
-          action_url: actionUrl.trim() || undefined,
-          send_push: sendPush,
-          send_in_app: sendInApp,
-        }),
-      });
+      if (broadcastMode === "scheduled") {
+        // Scheduled Campaign with Throttling Batches
+        const res = await fetch("/api/v1/admin/notifications/scheduled", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: title.trim(),
+            message: message.trim(),
+            type,
+            target,
+            target_user_id: target === "user" ? targetUserId : undefined,
+            priority,
+            action_url: actionUrl.trim() || undefined,
+            channels: {
+              in_app: sendInApp,
+              push: sendPush,
+              email: sendEmail,
+              whatsapp: sendWhatsapp,
+            },
+            scheduled_for: new Date(scheduledDatetime).toISOString(),
+            batch_size: Number(batchSize) || 50,
+            interval_seconds: Number(intervalSeconds) || 30,
+          }),
+        });
 
-      const json = await res.json();
-      if (json.success) {
-        setSuccessMessage(`✅ ${json.message}`);
-        setTimeout(() => setSuccessMessage(""), 5000);
+        const json = await res.json();
+        if (json.success) {
+          setSuccessMessage(`⏰ ${json.message}`);
+          setTimeout(() => setSuccessMessage(""), 5000);
+          await loadScheduledCampaigns();
+          setActiveViewTab("scheduled");
 
-        // Reload data to reflect real entries
-        await loadData();
-
-        // Reset Form
-        setTitle("");
-        setMessage("");
-        setActionUrl("");
-        setTarget("all");
-        setTargetUserId("");
-        setUserSearchTerm("");
+          // Reset Form
+          setTitle("");
+          setMessage("");
+          setActionUrl("");
+          setTarget("all");
+          setTargetUserId("");
+          setUserSearchTerm("");
+        } else {
+          alert(json.error || "فشل جدولة الإشعار");
+        }
       } else {
-        alert(json.error || "فشل إرسال الإشعار");
+        // Immediate Multi-Channel Broadcast
+        const res = await fetch("/api/v1/admin/notifications", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: title.trim(),
+            message: message.trim(),
+            type,
+            target,
+            target_user_id: target === "user" ? targetUserId : undefined,
+            priority,
+            action_url: actionUrl.trim() || undefined,
+            send_push: sendPush,
+            send_in_app: sendInApp,
+          }),
+        });
+
+        const json = await res.json();
+        if (json.success) {
+          setSuccessMessage(`✅ ${json.message}`);
+          setTimeout(() => setSuccessMessage(""), 5000);
+
+          // Reload data
+          await loadData();
+
+          // Reset Form
+          setTitle("");
+          setMessage("");
+          setActionUrl("");
+          setTarget("all");
+          setTargetUserId("");
+          setUserSearchTerm("");
+        } else {
+          alert(json.error || "فشل إرسال الإشعار");
+        }
       }
     } catch (err) {
       console.error(err);
@@ -552,7 +749,7 @@ export default function AdminNotificationsPage() {
         </div>
       </div>
 
-      {/* ── 3. MAIN WORKSPACE (TWO COLUMNS: COMPOSER & STREAM) ── */}
+      {/* ── 3. MAIN WORKSPACE (TWO COLUMNS: COMPOSER & STREAM/SCHEDULED QUEUE) ── */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* ── RIGHT COLUMN: SMART BROADCAST COMPOSER (5 COLS) ── */}
         <div className="lg:col-span-5 bg-white p-6 rounded-3xl border border-slate-200/90 shadow-sm space-y-6 lg:sticky lg:top-6">
@@ -562,14 +759,48 @@ export default function AdminNotificationsPage() {
                 <Send className="w-5 h-5" />
               </div>
               <div>
-                <h2 className="text-base font-black text-slate-900">إنشاء وبث إشعار فوري</h2>
-                <p className="text-[11px] text-slate-500 font-medium">إرسال تنبيه لكافة المنصات وتطبيقات الجوال</p>
+                <h2 className="text-base font-black text-slate-900">
+                  {broadcastMode === "scheduled" ? "إنشاء حملة مجدولة ومقسمة" : "إنشاء وبث إشعار فوري"}
+                </h2>
+                <p className="text-[11px] text-slate-500 font-medium">
+                  {broadcastMode === "scheduled"
+                    ? "جدولة البث مع تقسيم المستلمين لدفعات لمنع الضغط"
+                    : "إرسال تنبيه فوري لكافة المنصات وتطبيقات الجوال"}
+                </p>
               </div>
             </div>
 
             <span className="px-2 py-0.5 rounded-lg text-[10px] font-black bg-blue-50 text-blue-700 border border-blue-200">
               الوصول: {estimatedReach} مستخدم
             </span>
+          </div>
+
+          {/* Mode Switch (Immediate vs Scheduled with Throttling) */}
+          <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-2xl border border-slate-200">
+            <button
+              type="button"
+              onClick={() => setBroadcastMode("immediate")}
+              className={`flex-1 py-2 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                broadcastMode === "immediate"
+                  ? "bg-white text-blue-600 shadow-sm"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              <Send className="w-3.5 h-3.5" />
+              <span>بث فوري ⚡</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setBroadcastMode("scheduled")}
+              className={`flex-1 py-2 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                broadcastMode === "scheduled"
+                  ? "bg-white text-indigo-600 shadow-sm"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              <Clock className="w-3.5 h-3.5" />
+              <span>جدولة وتقسيم لدفعات ⏰</span>
+            </button>
           </div>
 
           {/* Quick Preset Templates */}
@@ -770,40 +1001,142 @@ export default function AdminNotificationsPage() {
             </div>
 
             {/* Broadcast Channels Toggles */}
-            <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl space-y-2">
-              <span className="text-[11px] font-bold text-slate-600 block">قنوات البث والتسليم:</span>
-              <div className="flex items-center gap-4 text-xs font-semibold text-slate-700 flex-wrap">
-                <label className="inline-flex items-center gap-1.5 cursor-pointer">
+            <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-2xl space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-slate-700 block">قنوات البث والتسليم المتعددة:</span>
+                <span className="text-[10px] text-slate-400 font-semibold">اختيار متعدد</span>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-xs font-bold text-slate-700">
+                <label className="flex items-center gap-2 p-2 bg-white rounded-xl border border-slate-200 cursor-pointer hover:bg-blue-50/50">
                   <input
                     type="checkbox"
                     checked={sendInApp}
                     onChange={(e) => setSendInApp(e.target.checked)}
                     className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
                   />
-                  <span>جرس المنصة (In-App)</span>
+                  <Bell className="w-3.5 h-3.5 text-blue-600" />
+                  <span className="text-[11px]">جرس المنصة (In-App)</span>
                 </label>
-                <label className="inline-flex items-center gap-1.5 cursor-pointer">
+
+                <label className="flex items-center gap-2 p-2 bg-white rounded-xl border border-slate-200 cursor-pointer hover:bg-purple-50/50">
                   <input
                     type="checkbox"
                     checked={sendPush}
                     onChange={(e) => setSendPush(e.target.checked)}
-                    className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
+                    className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500"
                   />
-                  <span>إشعار دفع للجوال (FCM Push)</span>
+                  <Smartphone className="w-3.5 h-3.5 text-purple-600" />
+                  <span className="text-[11px]">دفع للجوال (FCM Push)</span>
+                </label>
+
+                <label className="flex items-center gap-2 p-2 bg-white rounded-xl border border-slate-200 cursor-pointer hover:bg-sky-50/50">
+                  <input
+                    type="checkbox"
+                    checked={sendEmail}
+                    onChange={(e) => setSendEmail(e.target.checked)}
+                    className="w-4 h-4 rounded text-sky-600 focus:ring-sky-500"
+                  />
+                  <Mail className="w-3.5 h-3.5 text-sky-600" />
+                  <span className="text-[11px]">البريد (SMTP)</span>
+                </label>
+
+                <label className="flex items-center gap-2 p-2 bg-white rounded-xl border border-slate-200 cursor-pointer hover:bg-emerald-50/50">
+                  <input
+                    type="checkbox"
+                    checked={sendWhatsapp}
+                    onChange={(e) => setSendWhatsapp(e.target.checked)}
+                    className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500"
+                  />
+                  <MessageCircle className="w-3.5 h-3.5 text-emerald-600" />
+                  <span className="text-[11px]">واتساب (WhatsApp API)</span>
                 </label>
               </div>
             </div>
+
+            {/* Scheduled Configuration Card (When Scheduled Mode Active) */}
+            {broadcastMode === "scheduled" && (
+              <div className="p-4 bg-indigo-50/70 border border-indigo-200 rounded-2xl space-y-3 animate-in fade-in duration-200">
+                <div className="flex items-center gap-2 text-indigo-950 font-black text-xs">
+                  <Calendar className="w-4 h-4 text-indigo-600" />
+                  <span>إعدادات الجدولة والتقسيم لدفعات (Throttling System):</span>
+                </div>
+
+                {/* Scheduled Datetime */}
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-700 text-[11px] block">موعد وتوقيت البث المجدول:</label>
+                  <input
+                    type="datetime-local"
+                    value={scheduledDatetime}
+                    onChange={(e) => setScheduledDatetime(e.target.value)}
+                    min={new Date().toISOString().slice(0, 16)}
+                    className="w-full p-2.5 bg-white border border-indigo-200 rounded-xl text-xs font-mono font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    required
+                  />
+                </div>
+
+                {/* Batch Size & Interval */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-700 text-[11px] block">حجم الدفعة (أعضاء):</label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="500"
+                      value={batchSize}
+                      onChange={(e) => setBatchSize(parseInt(e.target.value, 10) || 50)}
+                      className="w-full p-2.5 bg-white border border-indigo-200 rounded-xl text-xs font-mono font-bold text-slate-900"
+                      placeholder="50"
+                      required
+                    />
+                    <span className="text-[9.5px] text-slate-500 block">مثال: 50 عضو بكل دفعة</span>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-700 text-[11px] block">الفاصل بين الدفعات (ثواني):</label>
+                    <input
+                      type="number"
+                      min="5"
+                      max="3600"
+                      value={intervalSeconds}
+                      onChange={(e) => setIntervalSeconds(parseInt(e.target.value, 10) || 30)}
+                      className="w-full p-2.5 bg-white border border-indigo-200 rounded-xl text-xs font-mono font-bold text-slate-900"
+                      placeholder="30"
+                      required
+                    />
+                    <span className="text-[9.5px] text-slate-500 block">مثال: 30 ثانية لتفادي الضغط</span>
+                  </div>
+                </div>
+
+                {/* Safety Load Guarantee Note */}
+                <div className="p-2.5 rounded-xl bg-white/80 border border-indigo-100 text-[10.5px] text-indigo-900 leading-relaxed font-semibold">
+                  🛡️ <strong>حماية السيرفر:</strong> يقوم النظام بتقسيم المستلمين تلقائياً إلى دفعات مجدولة وإرسالها بالفاصل الزمني المختار لضمان عدم حدوث أي Load أو حظر من بوابات الإرسال.
+                </div>
+              </div>
+            )}
 
             {/* Submit Button */}
             <Button
               type="submit"
               disabled={submitting}
-              className="w-full h-11 rounded-2xl font-black text-sm bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 hover:from-blue-700 hover:to-indigo-800 text-white shadow-md shadow-blue-500/20 cursor-pointer gap-2 transition-all"
+              className={`w-full h-12 rounded-2xl font-black text-sm text-white shadow-md cursor-pointer gap-2 transition-all ${
+                broadcastMode === "scheduled"
+                  ? "bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-700 hover:from-indigo-700 hover:to-purple-800 shadow-indigo-500/25"
+                  : "bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 hover:from-blue-700 hover:to-indigo-800 shadow-blue-500/20"
+              }`}
             >
               {submitting ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>جاري معالجة وبث الإشعار...</span>
+                  <span>
+                    {broadcastMode === "scheduled"
+                      ? "جاري جدولة الحملة وتقسيم المستلمين..."
+                      : "جاري معالجة وبث الإشعار..."}
+                  </span>
+                </>
+              ) : broadcastMode === "scheduled" ? (
+                <>
+                  <Calendar className="w-4 h-4" />
+                  <span>جدولة الإشعار ({batchSize} عضو/دفعة كل {intervalSeconds} ثانية)</span>
                 </>
               ) : (
                 <>
@@ -815,106 +1148,346 @@ export default function AdminNotificationsPage() {
           </form>
         </div>
 
-        {/* ── LEFT COLUMN: NOTIFICATION STREAM & HISTORY (7 COLS) ── */}
+        {/* ── LEFT COLUMN: STREAM & SCHEDULED QUEUE TABS (7 COLS) ── */}
         <div className="lg:col-span-7 space-y-4">
-          {/* Filter & Search Bar */}
-          <div className="bg-white p-4 sm:p-5 rounded-3xl border border-slate-200/90 shadow-sm space-y-3.5">
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
-              <div className="relative w-full sm:flex-1">
-                <Search className="w-4 h-4 absolute right-3 top-3 text-slate-400" />
-                <input
-                  type="text"
-                  placeholder="بحث في سجل الإشعارات (العنوان، المحتوى، اسم المستلم)..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="w-full pr-9 pl-4 py-2 bg-slate-50 border border-slate-200/90 rounded-2xl text-xs font-medium text-slate-900 placeholder:text-slate-400 focus:outline-hidden focus:bg-white focus:ring-2 focus:ring-blue-500/20"
-                />
-              </div>
-
-              {/* Date Range Filter */}
-              <DateRangeFilter
-                value={dateRange}
-                onChange={(val) => setDateRange(val)}
-                className="w-full sm:w-auto"
-              />
-            </div>
-
-            {/* Type & Audience Category Pills */}
-            <div className="flex items-center justify-between gap-2 flex-wrap pt-2 border-t border-slate-100 text-xs">
-              {/* Audience Filter Pills */}
-              <div className="flex items-center gap-1 flex-wrap">
-                <span className="text-[10.5px] font-bold text-slate-400 ml-1">الجمهور:</span>
-                {[
-                  { id: "all", label: "الكل" },
-                  { id: "clients", label: "العملاء" },
-                  { id: "vendors", label: "الموردين" },
-                  { id: "couriers", label: "المناديب" },
-                ].map((item) => (
-                  <button
-                    key={item.id}
-                    onClick={() => setFilterTarget(item.id)}
-                    className={`px-2.5 py-1 rounded-xl font-bold text-[10.5px] transition-all cursor-pointer ${
-                      filterTarget === item.id
-                        ? "bg-slate-900 text-white shadow-2xs"
-                        : "bg-slate-100 text-slate-600 hover:bg-slate-200/80"
-                    }`}
-                  >
-                    {item.label}
-                  </button>
-                ))}
-              </div>
-
-              {/* Type Filter Pills */}
-              <div className="flex items-center gap-1 flex-wrap">
-                <span className="text-[10.5px] font-bold text-slate-400 ml-1">النوع:</span>
-                {[
-                  { id: "all", label: "كافة الأنواع" },
-                  { id: "announcement", label: "إعلانات" },
-                  { id: "warning", label: "تنبيهات" },
-                  { id: "promotion", label: "عروض" },
-                  { id: "update", label: "تحديثات" },
-                ].map((item) => (
-                  <button
-                    key={item.id}
-                    onClick={() => setFilterType(item.id)}
-                    className={`px-2.5 py-1 rounded-xl font-bold text-[10.5px] transition-all cursor-pointer ${
-                      filterType === item.id
-                        ? "bg-blue-600 text-white shadow-2xs"
-                        : "bg-slate-100 text-slate-600 hover:bg-slate-200/80"
-                    }`}
-                  >
-                    {item.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* Results Count Bar */}
-          <div className="flex items-center justify-between px-2 text-xs font-bold text-slate-500">
-            <div className="flex items-center gap-1.5">
-              <span>سجل الإشعارات المرسلة</span>
-              <span className="px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 text-[11px] font-black">
-                {displayedNotifications.length} من {filteredNotifications.length}
+          {/* Main View Mode Selector Tabs */}
+          <div className="flex items-center gap-2 p-1.5 bg-slate-200/80 rounded-2xl border border-slate-300/80">
+            <button
+              onClick={() => setActiveViewTab("stream")}
+              className={`flex-1 py-2.5 px-4 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                activeViewTab === "stream"
+                  ? "bg-white text-blue-600 shadow-sm"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              <Bell className="w-4 h-4" />
+              <span>سجل الإشعارات المركزية الحية</span>
+              <span className="bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full text-[10px] font-black border border-blue-200">
+                {notifications.length}
               </span>
-            </div>
-            {(search || filterType !== "all" || filterTarget !== "all" || dateRange) && (
-              <button
-                onClick={() => {
-                  setSearch("");
-                  setFilterType("all");
-                  setFilterTarget("all");
-                  setDateRange(null);
-                }}
-                className="text-red-600 hover:underline text-[11px] cursor-pointer"
-              >
-                إلغاء كافة الفلاتر
-              </button>
-            )}
+            </button>
+
+            <button
+              onClick={() => setActiveViewTab("scheduled")}
+              className={`flex-1 py-2.5 px-4 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                activeViewTab === "scheduled"
+                  ? "bg-white text-indigo-600 shadow-sm"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              <Clock className="w-4 h-4 text-indigo-600" />
+              <span>طابور الحملات المجدولة ومراقبة التقسيم</span>
+              {scheduledCampaigns.filter((c) => c.status === "pending" || c.status === "processing").length > 0 && (
+                <span className="bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full text-[10px] font-black border border-amber-300 animate-pulse">
+                  {scheduledCampaigns.filter((c) => c.status === "pending" || c.status === "processing").length} نشطة
+                </span>
+              )}
+            </button>
           </div>
 
-          {/* Notification Items List */}
-          <div className="space-y-3">
+          {/* ════════════════════════════════════════════════════════════ */}
+          {/* ── TAB 1: SCHEDULED CAMPAIGNS & THROTTLING QUEUE VIEW ── */}
+          {/* ════════════════════════════════════════════════════════════ */}
+          {activeViewTab === "scheduled" && (
+            <div className="space-y-4 animate-in fade-in duration-200">
+              {/* Scheduled Queue Control Bar */}
+              <div className="bg-white p-4 rounded-3xl border border-slate-200/90 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                    <Sliders className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-xs sm:text-sm font-black text-slate-900">
+                      طابور البث المجدول ومراقبة الحِمل
+                    </h3>
+                    <p className="text-[11px] text-slate-500 font-medium">
+                      إجمالي الحملات: {scheduledCampaigns.length} حملة مجدولة ومقسمة
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={loadScheduledCampaigns}
+                    disabled={loadingCampaigns}
+                    className="rounded-xl border-slate-200 text-slate-700 text-xs font-bold gap-1.5 h-9 cursor-pointer"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${loadingCampaigns ? "animate-spin text-blue-600" : ""}`} />
+                    <span>تحديث الطابور</span>
+                  </Button>
+
+                  <Button
+                    size="sm"
+                    onClick={handleProcessDueBatchesNow}
+                    disabled={processingCampaignId !== null}
+                    className="rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black gap-1.5 h-9 cursor-pointer shadow-sm shadow-indigo-600/30"
+                  >
+                    {processingCampaignId ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span>جاري المعالجة...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Play className="w-3.5 h-3.5" />
+                        <span>معالجة الدفعات المستحقة فوراً ⚡</span>
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+
+              {/* Scheduled Campaigns List */}
+              {loadingCampaigns ? (
+                <div className="p-12 text-center bg-white rounded-3xl border border-slate-200/80 shadow-xs space-y-2">
+                  <Loader2 className="w-8 h-8 animate-spin mx-auto text-indigo-600 mb-2" />
+                  <p className="text-xs font-bold text-slate-800">جاري قراءة طابور الحملات المجدولة وإحصائيات الدفعات...</p>
+                </div>
+              ) : scheduledCampaigns.length === 0 ? (
+                <div className="p-12 text-center bg-white rounded-3xl border border-slate-200/80 shadow-xs space-y-3 text-slate-400">
+                  <div className="w-14 h-14 mx-auto rounded-3xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                    <Calendar className="w-7 h-7" />
+                  </div>
+                  <h4 className="text-sm font-black text-slate-700">لا توجد حملات مجدولة حالياً</h4>
+                  <p className="text-xs text-slate-400 max-w-sm mx-auto">
+                    يمكنك جدولة إشعار جديد عبر اختيار خيار <strong>"جدولة وتقسيم لدفعات ⏰"</strong> من النموذج على اليمين وتحديد موعد البث وحجم الدفعة.
+                  </p>
+                </div>
+              ) : (
+                scheduledCampaigns.map((camp) => {
+                  const percent = camp.total_recipients > 0 ? Math.round((camp.processed_count / camp.total_recipients) * 100) : 0;
+                  const isPending = camp.status === "pending";
+                  const isProcessing = camp.status === "processing";
+                  const isCompleted = camp.status === "completed";
+                  const isCancelled = camp.status === "cancelled";
+
+                  return (
+                    <div
+                      key={camp.id}
+                      className="bg-white p-5 rounded-3xl border border-slate-200/90 shadow-2xs hover:shadow-md hover:border-indigo-300 transition-all space-y-4"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h4 className="text-sm font-black text-slate-900">{camp.title}</h4>
+                            <Badge
+                              className={`text-[10px] font-black ${
+                                isCompleted
+                                  ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                  : isProcessing
+                                  ? "bg-blue-50 text-blue-700 border-blue-200 animate-pulse"
+                                  : isPending
+                                  ? "bg-amber-50 text-amber-700 border-amber-200"
+                                  : "bg-slate-100 text-slate-600 border-slate-200"
+                              }`}
+                            >
+                              {isCompleted
+                                ? "مكتملة بنجاح ✓"
+                                : isProcessing
+                                ? "جاري البث والتقسيم 🔄"
+                                : isPending
+                                ? "في الانتظار ⏰"
+                                : "ملغاة ⏸️"}
+                            </Badge>
+
+                            <span className="text-[10px] text-slate-400 font-mono">#{camp.id}</span>
+                          </div>
+                          <p className="text-xs text-slate-600 leading-relaxed line-clamp-2">{camp.message}</p>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {(isPending || isProcessing) && (
+                            <button
+                              type="button"
+                              onClick={() => handleCancelCampaign(camp.id)}
+                              title="إلغاء الحملة"
+                              className="p-2 rounded-xl bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200 text-xs font-bold transition-all cursor-pointer"
+                            >
+                              <Pause className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteCampaign(camp.id)}
+                            title="حذف من السجل"
+                            className="p-2 rounded-xl bg-red-50 text-red-600 hover:bg-red-100 border border-red-200 text-xs font-bold transition-all cursor-pointer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Delivery Channels Badges */}
+                      <div className="flex items-center gap-2 flex-wrap text-[11px] font-bold">
+                        <span className="text-slate-400 text-[10px]">قنوات التسليم:</span>
+                        {camp.channels?.in_app && (
+                          <span className="px-2 py-0.5 rounded-lg bg-blue-50 text-blue-700 border border-blue-200 inline-flex items-center gap-1">
+                            <Bell className="w-3 h-3" /> جرس
+                          </span>
+                        )}
+                        {camp.channels?.push && (
+                          <span className="px-2 py-0.5 rounded-lg bg-purple-50 text-purple-700 border border-purple-200 inline-flex items-center gap-1">
+                            <Smartphone className="w-3 h-3" /> جوال (Push)
+                          </span>
+                        )}
+                        {camp.channels?.email && (
+                          <span className="px-2 py-0.5 rounded-lg bg-sky-50 text-sky-700 border border-sky-200 inline-flex items-center gap-1">
+                            <Mail className="w-3 h-3" /> بريد
+                          </span>
+                        )}
+                        {camp.channels?.whatsapp && (
+                          <span className="px-2 py-0.5 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 inline-flex items-center gap-1">
+                            <MessageCircle className="w-3 h-3" /> واتساب
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Throttling Metrics & Progress */}
+                      <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-2 text-xs">
+                        <div className="flex items-center justify-between text-[11px] font-bold text-slate-700 flex-wrap gap-2">
+                          <span className="flex items-center gap-1.5 text-indigo-700 font-black">
+                            <Clock className="w-3.5 h-3.5" />
+                            <span>موعد البث: {new Date(camp.scheduled_for).toLocaleString("ar-SA")}</span>
+                          </span>
+                          <span className="text-slate-500">
+                            التقسيم: {camp.batch_size} عضو/دفعة كل {camp.interval_seconds} ثانية
+                          </span>
+                        </div>
+
+                        {/* Progress Bar */}
+                        <div className="space-y-1">
+                          <div className="flex items-center justify-between text-[10px] font-bold text-slate-600">
+                            <span>
+                              تم تسليم: <strong>{camp.processed_count}</strong> من <strong>{camp.total_recipients}</strong> مستلم ({camp.batches_completed} من {camp.batches_total} دفعة)
+                            </span>
+                            <span className="font-mono font-black text-indigo-600">{percent}%</span>
+                          </div>
+                          <div className="w-full h-2.5 bg-slate-200 rounded-full overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all duration-500 ${
+                                isCompleted
+                                  ? "bg-emerald-500"
+                                  : isProcessing
+                                  ? "bg-blue-600 animate-pulse"
+                                  : "bg-indigo-600"
+                              }`}
+                              style={{ width: `${percent}%` }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          )}
+
+          {/* ════════════════════════════════════════════════════════════ */}
+          {/* ── TAB 2: LIVE NOTIFICATION STREAM & HISTORY ── */}
+          {/* ════════════════════════════════════════════════════════════ */}
+          {activeViewTab === "stream" && (
+            <div className="space-y-4 animate-in fade-in duration-200">
+              {/* Filter & Search Bar */}
+              <div className="bg-white p-4 sm:p-5 rounded-3xl border border-slate-200/90 shadow-sm space-y-3.5">
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+                  <div className="relative w-full sm:flex-1">
+                    <Search className="w-4 h-4 absolute right-3 top-3 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder="بحث في سجل الإشعارات (العنوان، المحتوى، اسم المستلم)..."
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                      className="w-full pr-9 pl-4 py-2 bg-slate-50 border border-slate-200/90 rounded-2xl text-xs font-medium text-slate-900 placeholder:text-slate-400 focus:outline-hidden focus:bg-white focus:ring-2 focus:ring-blue-500/20"
+                    />
+                  </div>
+
+                  {/* Date Range Filter */}
+                  <DateRangeFilter
+                    value={dateRange}
+                    onChange={(val) => setDateRange(val)}
+                    className="w-full sm:w-auto"
+                  />
+                </div>
+
+                {/* Type & Audience Category Pills */}
+                <div className="flex items-center justify-between gap-2 flex-wrap pt-2 border-t border-slate-100 text-xs">
+                  {/* Audience Filter Pills */}
+                  <div className="flex items-center gap-1 flex-wrap">
+                    <span className="text-[10.5px] font-bold text-slate-400 ml-1">الجمهور:</span>
+                    {[
+                      { id: "all", label: "الكل" },
+                      { id: "clients", label: "العملاء" },
+                      { id: "vendors", label: "الموردين" },
+                      { id: "couriers", label: "المناديب" },
+                    ].map((item) => (
+                      <button
+                        key={item.id}
+                        onClick={() => setFilterTarget(item.id)}
+                        className={`px-2.5 py-1 rounded-xl font-bold text-[10.5px] transition-all cursor-pointer ${
+                          filterTarget === item.id
+                            ? "bg-slate-900 text-white shadow-2xs"
+                            : "bg-slate-100 text-slate-600 hover:bg-slate-200/80"
+                        }`}
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Type Filter Pills */}
+                  <div className="flex items-center gap-1 flex-wrap">
+                    <span className="text-[10.5px] font-bold text-slate-400 ml-1">النوع:</span>
+                    {[
+                      { id: "all", label: "كافة الأنواع" },
+                      { id: "announcement", label: "إعلانات" },
+                      { id: "warning", label: "تنبيهات" },
+                      { id: "promotion", label: "عروض" },
+                      { id: "update", label: "تحديثات" },
+                    ].map((item) => (
+                      <button
+                        key={item.id}
+                        onClick={() => setFilterType(item.id)}
+                        className={`px-2.5 py-1 rounded-xl font-bold text-[10.5px] transition-all cursor-pointer ${
+                          filterType === item.id
+                            ? "bg-blue-600 text-white shadow-2xs"
+                            : "bg-slate-100 text-slate-600 hover:bg-slate-200/80"
+                        }`}
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Results Count Bar */}
+              <div className="flex items-center justify-between px-2 text-xs font-bold text-slate-500">
+                <div className="flex items-center gap-1.5">
+                  <span>سجل الإشعارات المرسلة</span>
+                  <span className="px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 text-[11px] font-black">
+                    {displayedNotifications.length} من {filteredNotifications.length}
+                  </span>
+                </div>
+                {(search || filterType !== "all" || filterTarget !== "all" || dateRange) && (
+                  <button
+                    onClick={() => {
+                      setSearch("");
+                      setFilterType("all");
+                      setFilterTarget("all");
+                      setDateRange(null);
+                    }}
+                    className="text-red-600 hover:underline text-[11px] cursor-pointer"
+                  >
+                    إلغاء كافة الفلاتر
+                  </button>
+                )}
+              </div>
+
+              {/* Notification Items List */}
+              <div className="space-y-3">
             {loading ? (
               <div className="p-12 text-center bg-white rounded-3xl border border-slate-200/80 shadow-xs space-y-2">
                 <Loader2 className="w-8 h-8 animate-spin mx-auto text-blue-600 mb-2" />
@@ -1065,9 +1638,11 @@ export default function AdminNotificationsPage() {
             )}
           </div>
         </div>
-      </div>
+      )}
+    </div>
+  </div>
 
-      {/* ── 4. INSPECT MODAL (معاينة وفحص الإشعار وحمولة البيانات) ── */}
+  {/* ── 4. INSPECT MODAL (معاينة وفحص الإشعار وحمولة البيانات) ── */}
       {inspectItem && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-xs p-4 overflow-y-auto" dir="rtl">
           <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl max-w-lg w-full p-6 space-y-5 animate-in zoom-in-95 duration-150">

@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:rfqsa_mobile/core/theme/app_colors.dart';
 import 'package:rfqsa_mobile/core/utils/currency_formatter.dart';
 import 'package:rfqsa_mobile/core/utils/id_utils.dart';
@@ -224,6 +225,19 @@ class _VendorOrdersScreenState extends State<VendorOrdersScreen> {
     );
   }
 
+  Future<void> _makeCall(String phone) async {
+    final cleanPhone = phone.trim().replaceAll(' ', '').replaceAll('-', '');
+    if (cleanPhone.isEmpty) return;
+    final uri = Uri.parse('tel:$cleanPhone');
+    try {
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } else {
+        await launchUrl(uri);
+      }
+    } catch (_) {}
+  }
+
   // ── BUILD UNIFIED VENDOR ROWS ──
   List<_UnifiedVendorItem> get _allRows {
     final List<_UnifiedVendorItem> rows = [];
@@ -257,7 +271,7 @@ class _VendorOrdersScreenState extends State<VendorOrdersScreen> {
         partsText: partsSummary,
         partsCount: 1,
         deliveryLocation: rfq['delivery_location']?.toString() ?? 'الرياض',
-        clientName: client['company_name'] ?? client['full_name'] ?? 'شركة المشتريات الوطنية',
+        clientName: client['company_name'] ?? client['full_name'] ?? 'عميل رفق المعتمد',
         clientPhone: client['phone']?.toString() ?? '0501234567',
         amount: tot,
         status: st,
@@ -1070,37 +1084,45 @@ class _VendorOrdersScreenState extends State<VendorOrdersScreen> {
                               ),
                             ),
                           ],
-                          const SizedBox(height: 8),
-                          InkWell(
-                            onTap: () {
-                              Navigator.pushNamed(
-                                context,
-                                AppRouter.clientOrderTracking,
-                                arguments: _makeOrderTrackingArgs(item),
-                              );
-                            },
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 4),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: const [
-                                  Text(
-                                    'عرض ومتابعة تفاصيل الطلب والفاتورة',
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.bold,
-                                      color: Color(0xFF1B4D3E),
-                                    ),
+                          const SizedBox(height: 10),
+                          Row(
+                            children: [
+                              Expanded(
+                                flex: 3,
+                                child: OutlinedButton.icon(
+                                  onPressed: () {
+                                    Navigator.pushNamed(
+                                      context,
+                                      AppRouter.clientOrderTracking,
+                                      arguments: _makeOrderTrackingArgs(item),
+                                    );
+                                  },
+                                  icon: const Icon(Icons.receipt_long_rounded, size: 14),
+                                  label: const Text('تفاصيل الطلب والفاتورة 📄', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: const Color(0xFF1B4D3E),
+                                    side: const BorderSide(color: Color(0xFFCBD5E1)),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                    padding: const EdgeInsets.symmetric(vertical: 8),
                                   ),
-                                  SizedBox(width: 4),
-                                  Icon(
-                                    Icons.arrow_back_ios_new_rounded,
-                                    size: 11,
-                                    color: Color(0xFF1B4D3E),
-                                  ),
-                                ],
+                                ),
                               ),
-                            ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                flex: 2,
+                                child: ElevatedButton.icon(
+                                  onPressed: () => _makeCall(item.clientPhone ?? '0501234567'),
+                                  icon: const Icon(Icons.phone_in_talk_rounded, size: 14),
+                                  label: const Text('اتصال 📞', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900)),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: const Color(0xFF2563EB),
+                                    foregroundColor: Colors.white,
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                    padding: const EdgeInsets.symmetric(vertical: 8),
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                         ],
                       ),
@@ -1361,19 +1383,22 @@ class _UnifiedVendorItem {
   bool get isBranchPickup {
     if (rawOrder == null) return false;
     final rfq = rawOrder?['rfqs'] ?? rawOrder?['rfq'] ?? {};
-    final deliveryLoc = rfq['delivery_location']?.toString() ?? rawOrder?['delivery_location']?.toString() ?? '';
-    return rawOrder?['fulfillment_method']?.toString().toLowerCase() == 'branch_pickup' ||
-        rawOrder?['fulfillment_method']?.toString().toLowerCase() == 'pickup' ||
-        rawOrder?['fulfillment_type']?.toString().toLowerCase() == 'branch_pickup' ||
-        rawOrder?['is_pickup'] == true ||
-        rawOrder?['delivery_method']?.toString().toLowerCase() == 'pickup' ||
-        rawOrder?['shipping_method']?.toString().toLowerCase() == 'pickup' ||
-        rfq['fulfillment_method']?.toString().toLowerCase() == 'self_pickup' ||
-        rfq['delivery_method']?.toString().toLowerCase() == 'pickup' ||
-        rawOrder?['delivery_fee'] == 0 ||
-        rawOrder?['delivery_fee']?.toString() == '0.00' ||
-        deliveryLoc.contains('استلام من الفرع') ||
-        deliveryLoc.contains('فرع') ||
-        deliveryLoc.contains('استلام');
+    final rawFulfillment = (rawOrder?['fulfillment_method'] ??
+            rawOrder?['fulfillment_type'] ??
+            rfq['fulfillment_method'] ??
+            rawOrder?['delivery_method'] ??
+            rfq['delivery_method'] ??
+            '')
+        .toString()
+        .toLowerCase();
+    final isExplicitDelivery = rawFulfillment == 'delivery' ||
+        rawFulfillment == 'courier' ||
+        rawFulfillment == 'shipping' ||
+        rawOrder?['is_pickup'] == false;
+    if (isExplicitDelivery) return false;
+    return rawOrder?['is_pickup'] == true ||
+        rawFulfillment == 'branch_pickup' ||
+        rawFulfillment == 'pickup' ||
+        rawFulfillment == 'self_pickup';
   }
 }

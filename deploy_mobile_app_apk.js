@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { execSync } = require('child_process');
 const { Client } = require('ssh2');
 
 const config = {
@@ -12,10 +13,19 @@ const config = {
 const localArchive = path.join(__dirname, 'mobile_app.tar.gz');
 const remoteArchive = '/root/mobile_app.tar.gz';
 
-console.log('🚀 Starting Clean Mobile App Build & Deploy to https://rfqsa.tech/rfq.apk...');
+console.log('🚀 Step 1: Packaging mobile_app into mobile_app.tar.gz...');
+if (fs.existsSync(localArchive)) {
+  fs.unlinkSync(localArchive);
+}
 
-if (!fs.existsSync(localArchive)) {
-  console.error(`❌ Archive not found: ${localArchive}`);
+try {
+  execSync('tar -czf mobile_app.tar.gz --exclude="build" --exclude=".dart_tool" --exclude=".git" mobile_app', {
+    cwd: __dirname,
+    stdio: 'inherit',
+  });
+  console.log(`✅ Packaged archive size: ${(fs.statSync(localArchive).size / (1024 * 1024)).toFixed(2)} MB`);
+} catch (e) {
+  console.error('❌ Failed to package mobile_app:', e.message);
   process.exit(1);
 }
 
@@ -31,7 +41,7 @@ conn.on('ready', () => {
       return;
     }
 
-    console.log(`📦 Uploading mobile_app.tar.gz (${(fs.statSync(localArchive).size / (1024 * 1024)).toFixed(2)} MB)...`);
+    console.log(`📦 Step 2: Uploading mobile_app.tar.gz to VPS...`);
     sftp.fastPut(localArchive, remoteArchive, (putErr) => {
       if (putErr) {
         console.error('❌ Upload Failed:', putErr);
@@ -47,22 +57,25 @@ echo "--------------------------------------------------------"
 echo "🛠️ Preparing Clean Mobile App Build on VPS..."
 echo "--------------------------------------------------------"
 
-# 1. Clean previous build directory completely
+# Stop lingering java (Gradle) and dart background daemons
+echo "🛑 Stopping lingering background daemons..."
+killall -9 java 2>/dev/null || true
+killall -9 dart 2>/dev/null || true
+rm -rf /root/.kotlin
+sleep 2
+
+# Clean previous build directory completely
 rm -rf /root/mobile_app_build
 mkdir -p /root/mobile_app_build
 tar -xzf /root/mobile_app.tar.gz -C /root/mobile_app_build/
 rm -f /root/mobile_app.tar.gz
 
-# 2. Environment paths
+# Environment paths
 export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
 export ANDROID_HOME=/opt/android-sdk
 export ANDROID_SDK_ROOT=/opt/android-sdk
 export FLUTTER_HOME=/opt/flutter
 export PATH=$JAVA_HOME/bin:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$FLUTTER_HOME/bin:$PATH
-
-echo "📥 Installing Android SDK 36..."
-yes | sdkmanager --licenses 2>/dev/null || true
-sdkmanager "platform-tools" "platforms;android-36" "platforms;android-34" "build-tools;36.0.0" "build-tools;34.0.0" 2>/dev/null || true
 
 git config --global --add safe.directory $FLUTTER_HOME || true
 flutter config --no-analytics
@@ -70,14 +83,13 @@ flutter config --android-sdk $ANDROID_HOME
 
 cd /root/mobile_app_build/mobile_app
 
-echo "📦 Running flutter clean & pub get..."
-flutter clean || true
+echo "📦 Running flutter pub get..."
 flutter pub get
 
 echo "🔨 Building Flutter APK (Release mode)..."
 flutter build apk --release --no-tree-shake-icons --android-skip-build-dependency-validation
 
-# 3. Deploy APK to /var/www/rfq/public/rfq.apk
+# Deploy APK to /var/www/rfq/public/rfq.apk
 echo "🚀 Copying APK to /var/www/rfq/public/rfq.apk..."
 mkdir -p /var/www/rfq/public
 cp build/app/outputs/flutter-apk/app-release.apk /var/www/rfq/public/rfq.apk

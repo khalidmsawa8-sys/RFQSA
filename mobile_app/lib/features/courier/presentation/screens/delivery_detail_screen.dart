@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:image_picker/image_picker.dart';
@@ -37,16 +38,34 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
   // POD Photo
   File? _podPhotoFile;
 
+  // Live Prep & Readiness Countdown Timer
+  Timer? _prepCountdownTimer;
+
   @override
   void initState() {
     super.initState();
     _task = widget.delivery;
+    _prepCountdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (mounted) setState(() {});
+    });
   }
 
   @override
   void dispose() {
+    _prepCountdownTimer?.cancel();
     _otpController.dispose();
     super.dispose();
+  }
+
+  Future<void> _openWhatsApp(String phone) async {
+    final cleanPhone = phone.replaceAll(RegExp(r'\D'), '');
+    final saudiPhone = cleanPhone.startsWith('966')
+        ? cleanPhone
+        : (cleanPhone.startsWith('05') ? '966${cleanPhone.substring(1)}' : '966$cleanPhone');
+    final uri = Uri.parse('https://wa.me/$saudiPhone');
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
   }
 
   Future<void> _openGoogleMaps(double lat, double lng) async {
@@ -306,6 +325,10 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
             _buildMultiStepTracker(),
             const SizedBox(height: 14),
 
+            // ── 1.5 VENDOR PREPARATION & READINESS COUNTDOWN TIMER CARD ──
+            _buildVendorPrepTimerCard(),
+            const SizedBox(height: 14),
+
             // ── 2. LEG 1: PICKUP FROM VENDOR ──
             _buildLegCard(
               legNumber: '1',
@@ -478,6 +501,127 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
     }
   }
 
+  // ── Vendor Preparation & Readiness Timer Card (Ultra-Professional Design) ──
+  Widget _buildVendorPrepTimerCard() {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: _task.isReadyForPickup
+              ? [const Color(0xFFF0FDF4), const Color(0xFFDCFCE7)]
+              : [const Color(0xFFFFFBEB), const Color(0xFFFEF3C7)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: _task.isReadyForPickup ? const Color(0xFF86EFAC) : const Color(0xFFFCD34D),
+          width: 1.2,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.02),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  Icon(
+                    _task.isReadyForPickup ? Icons.check_circle_rounded : Icons.timer_outlined,
+                    size: 18,
+                    color: _task.isReadyForPickup ? const Color(0xFF16A34A) : const Color(0xFFD97706),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    _task.isReadyForPickup ? 'الطلب جاهز للاستلام الميداني' : 'الطلب قيد التجهيز لدى المورد',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w900,
+                      color: _task.isReadyForPickup ? const Color(0xFF166534) : const Color(0xFF92400E),
+                    ),
+                  ),
+                ],
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: _task.isReadyForPickup ? const Color(0xFF15803D) : const Color(0xFFB45309),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  _task.isReadyForPickup ? 'جاهز الآن 🚀' : 'قيد الانتظار ⏳',
+                  style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            _task.isReadyForPickup
+                ? 'أكد المورد اكتمال فرز وتعبئة القطع، يمكنك التوجه مباشرة واستلام الشحنة من مستودع المورد.'
+                : 'حدد المورد مدة التجهيز المقدرة بـ (${_task.prepTimeText}). يرجى التأكد من اكتمال التجهيز قبل التوجه للفرع.',
+            style: TextStyle(
+              fontSize: 11.5,
+              color: _task.isReadyForPickup ? const Color(0xFF14532D) : const Color(0xFF78350F),
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              const Icon(Icons.schedule_rounded, size: 14, color: Color(0xFF64748B)),
+              const SizedBox(width: 4),
+              Text(
+                'مدة التجهيز المعتمدة: ${_task.prepTimeText}',
+                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF334155)),
+              ),
+            ],
+          ),
+          if (!_task.isReadyForPickup && _task.remainingPrepDuration.inSeconds > 0) ...[
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFEF3C7),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFFFDE68A)),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'العد التنازلي لاكتمال التجهيز:',
+                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF92400E)),
+                  ),
+                  Directionality(
+                    textDirection: TextDirection.ltr,
+                    child: Text(
+                      '${_task.remainingPrepDuration.inHours.toString().padLeft(2, '0')}:${(_task.remainingPrepDuration.inMinutes % 60).toString().padLeft(2, '0')}:${(_task.remainingPrepDuration.inSeconds % 60).toString().padLeft(2, '0')}',
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w900,
+                        color: Color(0xFFB45309),
+                        fontFamily: 'monospace',
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
   Widget _buildLegCard({
     required String legNumber,
     required String legTitle,
@@ -550,16 +694,54 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
           Text(partyName, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w900, color: Color(0xFF0F172A))),
           const SizedBox(height: 3),
           Text(address, style: const TextStyle(fontSize: 11.5, color: Color(0xFF475569))),
-          const SizedBox(height: 12),
 
-          // Action Buttons (Maps & Call)
+          // Contact Phone Box (Prominent for easy courier communication)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+            margin: const EdgeInsets.symmetric(vertical: 8),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF8FAFC),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  legNumber == '2' ? Icons.phone_iphone_rounded : Icons.store_rounded,
+                  size: 16,
+                  color: legNumber == '2' ? const Color(0xFF0284C7) : const Color(0xFFD97706),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  legNumber == '2' ? 'رقم جوال المستلم للتواصل:' : 'رقم هاتف المورد:',
+                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF64748B)),
+                ),
+                const Spacer(),
+                Directionality(
+                  textDirection: TextDirection.ltr,
+                  child: Text(
+                    phone.isNotEmpty ? phone : '0501234567',
+                    style: const TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w900,
+                      color: Color(0xFF0F172A),
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 4),
+
+          // Action Buttons (Maps, Call & WhatsApp)
           Row(
             children: [
               Expanded(
                 child: OutlinedButton.icon(
                   onPressed: () => _openGoogleMaps(lat, lng),
-                  icon: const Icon(Icons.navigation_rounded, size: 16, color: Color(0xFF059669)),
-                  label: const Text('فتح الخريطة 🗺️', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: Color(0xFF059669))),
+                  icon: const Icon(Icons.navigation_rounded, size: 15, color: Color(0xFF059669)),
+                  label: const Text('الخريطة 🗺️', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF059669))),
                   style: OutlinedButton.styleFrom(
                     side: const BorderSide(color: Color(0xFFA7F3D0)),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -567,15 +749,26 @@ class _DeliveryDetailScreenState extends State<DeliveryDetailScreen> {
                   ),
                 ),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 6),
               OutlinedButton.icon(
                 onPressed: () => _makePhoneCall(phone),
-                icon: const Icon(Icons.phone_rounded, size: 16, color: Color(0xFF1E293B)),
-                label: const Text('اتصال 📞', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: Color(0xFF1E293B))),
+                icon: const Icon(Icons.phone_rounded, size: 15, color: Color(0xFF1E293B)),
+                label: const Text('اتصال 📞', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF1E293B))),
                 style: OutlinedButton.styleFrom(
                   side: const BorderSide(color: Color(0xFFCBD5E1)),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 14),
+                  padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
+                ),
+              ),
+              const SizedBox(width: 6),
+              OutlinedButton.icon(
+                onPressed: () => _openWhatsApp(phone),
+                icon: const Icon(Icons.chat_rounded, size: 15, color: Color(0xFF16A34A)),
+                label: const Text('واتساب 💬', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF16A34A))),
+                style: OutlinedButton.styleFrom(
+                  side: const BorderSide(color: Color(0xFFBBF7D0)),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
                 ),
               ),
             ],

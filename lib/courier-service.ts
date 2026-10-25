@@ -32,6 +32,7 @@ const DELIVERY_AUDIT_FILE = path.join(DATA_DIR, "delivery_audit_db.json");
 const IDEMPOTENCY_CACHE_FILE = path.join(DATA_DIR, "idempotency_cache_db.json");
 const RFQS_FILE = path.join(DATA_DIR, "rfqs_db.json");
 const PROFILES_FILE = path.join(DATA_DIR, "profiles_db.json");
+const QUOTES_FILE = path.join(DATA_DIR, "quotes_db.json");
 
 // Helper to safely load JSON files
 function loadJson<T>(filePath: string, fallback: T): T {
@@ -89,6 +90,12 @@ export interface DeliveryRecord {
   vendor_id?: string;
   client_name: string;
   client_phone: string;
+  recipient_name?: string;
+  recipient_phone?: string;
+  prep_time_text?: string;
+  delivery_days?: number;
+  estimated_ready_at?: string;
+  is_ready_for_pickup?: boolean;
   parts_summary: string;
   parts_items: Array<{ name: string; quantity: number; part_type?: string }>;
   delivery_fee_earned: number; // Courier commission
@@ -330,41 +337,148 @@ function buildDeliveryFromOrder(
     order.vendor_phone ||
     "0551122334";
 
+  // Extract extra RFQ payload details (such as recipientPhone / recipientName saved in parts_description)
+  let rfqExtra: any = {};
+  if (rfq?.parts_description) {
+    try {
+      const p = typeof rfq.parts_description === "string" ? JSON.parse(rfq.parts_description) : rfq.parts_description;
+      if (Array.isArray(p) && p.length > 0) rfqExtra = p[0] || {};
+    } catch {}
+  }
+
+  const clientPhone =
+    rfq.recipient_phone ||
+    rfq.recipientPhone ||
+    rfqExtra.recipientPhone ||
+    rfqExtra.recipient_phone ||
+    order.recipient_phone ||
+    order.recipientPhone ||
+    order.client_phone ||
+    clientProfile.phone ||
+    "0501234567";
+
   const clientName =
+    rfq.recipient_name ||
+    rfq.recipientName ||
+    rfqExtra.recipientName ||
+    rfqExtra.recipient_name ||
+    order.recipient_name ||
+    order.recipientName ||
+    order.client_name ||
     clientProfile.full_name ||
     clientProfile.company_name ||
-    rfq.recipient_name ||
-    order.client_name ||
     "عميل معتمد";
 
   const dropoffAddress =
-    rfq.delivery_location ||
     order.delivery_location ||
-    "الرياض - حي النرجس - شارع الأمير فيصل";
+    order.dropoff_address ||
+    order.shipping_address ||
+    order.recipient_address ||
+    rfq.delivery_location ||
+    clientProfile.address ||
+    "الرياض - حي الروضة - شارع حفصة بنت عمر";
 
   const dropoffCity =
-    rfq.delivery_city ||
-    order.delivery_city ||
+    order.city ||
+    rfq.city ||
+    clientProfile.city ||
     "الرياض";
 
   const dropoffDistrict =
-    dropoffAddress.includes("-")
-      ? dropoffAddress.split("-").pop()?.trim()
-      : "حي النرجس";
+    order.district ||
+    rfq.district ||
+    clientProfile.district ||
+    "حي الروضة";
 
-  const clientPhone =
-    clientProfile.phone ||
-    rfq.recipient_phone ||
-    order.client_phone ||
-    "0501234567";
+  // Resolve assigned courier (respects explicitly assigned courier_id on the order)
+  const resolvedCourierId =
+    order.courier_id ||
+    order.driver_id ||
+    rfq.courier_id ||
+    (activeCourierId && activeCourierId !== "courier-demo-id" ? activeCourierId : null) ||
+    "courier-demo-id";
+
+  const courierProfile = profiles.find((p: any) =>
+    (resolvedCourierId && (p.id === resolvedCourierId || p.user_id === resolvedCourierId)) ||
+    (order.courier_email && p.email === order.courier_email) ||
+    (order.courier_phone && p.phone === order.courier_phone)
+  );
+
+  const courierName =
+    courierProfile?.full_name ||
+    courierProfile?.name ||
+    order.courier_name ||
+    "سعيد المطيري";
+
+  const courierPhone =
+    courierProfile?.phone ||
+    order.courier_phone ||
+    "0559876543";
+
+  const courierVehicle =
+    courierProfile?.vehicle_details ||
+    courierProfile?.vehicle ||
+    order.courier_vehicle ||
+    "دراجة نارية - لوحة د هـ 2214";
+
+  // Calculate Vendor Readiness & Prep Timer
+  const quotes = loadJson<any[]>(QUOTES_FILE, []);
+  const matchedQuote = quotes.find(
+    (q) => q.id === order.quote_id || q.id === rfq.accepted_quote_id || q.rfq_id === rfq.id
+  );
+
+  let deliveryDays = 1;
+  if (matchedQuote?.delivery_days != null && Number(matchedQuote.delivery_days) > 0) {
+    deliveryDays = Number(matchedQuote.delivery_days);
+  } else if (order.delivery_days != null && Number(order.delivery_days) > 0) {
+    deliveryDays = Number(order.delivery_days);
+  }
+
+  let prepTimeText = "";
+  if (matchedQuote?.notes) {
+    const match = matchedQuote.notes.match(/مدة التجهيز:\s*([^|]+)/i);
+    if (match && match[1]) prepTimeText = match[1].trim();
+  }
+  if (!prepTimeText && matchedQuote?.preparation_time) {
+    prepTimeText = String(matchedQuote.preparation_time).trim();
+  }
+  if (!prepTimeText && (order as any).preparation_time) {
+    prepTimeText = String((order as any).preparation_time).trim();
+  }
+  if (!prepTimeText) {
+    if (deliveryDays === 1) prepTimeText = "خلال 24 ساعة (تجهيز فوري)";
+    else if (deliveryDays === 2) prepTimeText = "يومان (48 ساعة)";
+    else prepTimeText = `${deliveryDays} أيام`;
+  }
+
+  const orderCreatedMs = new Date(order.created_at || Date.now()).getTime();
+  let prepHours = 1;
+  if (prepTimeText.includes("30") || prepTimeText.includes("نصف ساعة")) {
+    prepHours = 0.5;
+  } else if (prepTimeText.includes("ساعة واحدة") || prepTimeText.includes("1 ساعة") || prepTimeText === "ساعة") {
+    prepHours = 1;
+  } else if (prepTimeText.includes("ساعتان") || prepTimeText.includes("2 ساعة")) {
+    prepHours = 2;
+  } else if (deliveryDays > 0) {
+    prepHours = Math.min(24, deliveryDays * 4);
+  }
+
+  const estimatedReadyAt = new Date(orderCreatedMs + prepHours * 3600 * 1000).toISOString();
+  const isReadyForPickup =
+    Date.now() >= (orderCreatedMs + prepHours * 3600 * 1000) ||
+    deliveryStatus === "ARRIVED_PICKUP" ||
+    deliveryStatus === "PICKED_UP" ||
+    deliveryStatus === "EN_ROUTE_DELIVERY" ||
+    deliveryStatus === "ARRIVED_DELIVERY" ||
+    deliveryStatus === "DELIVERED";
 
   return {
     id: deliveryId,
     order_id: orderId,
-    courier_id: activeCourierId && activeCourierId !== "courier-demo-id" ? activeCourierId : "courier-demo-id",
-    courier_name: "سعيد المطيري",
-    courier_phone: "0559876543",
-    courier_vehicle: "دراجة نارية - لوحة د هـ 2214",
+    courier_id: resolvedCourierId,
+    courier_name: courierName,
+    courier_phone: courierPhone,
+    courier_vehicle: courierVehicle,
     delivery_status: deliveryStatus,
     pickup_address: vendorAddress,
     pickup_city: vendorProfile.city || "الرياض",
@@ -380,6 +494,12 @@ function buildDeliveryFromOrder(
     dropoff_coords: { lat: 24.8465, lng: 46.6542 },
     client_name: clientName,
     client_phone: clientPhone,
+    recipient_name: clientName,
+    recipient_phone: clientPhone,
+    prep_time_text: prepTimeText,
+    delivery_days: deliveryDays,
+    estimated_ready_at: estimatedReadyAt,
+    is_ready_for_pickup: isReadyForPickup,
     client_id: order.client_id || rfq.client_id || (clientProfile as any)?.id || "client-demo-id",
     vendor_id: order.vendor_id || (vendorProfile as any)?.id || "vendor-demo-id",
     parts_summary: partsSummary,
@@ -415,30 +535,22 @@ export class CourierService {
       if (!order || !order.id) continue;
 
       const rfq = rfqs.find((r) => r.id === order.rfq_id || r.id === order.id);
-      const isPickup =
-        order?.fulfillment_method === "BRANCH_PICKUP" ||
-        order?.fulfillment_method === "pickup" ||
-        order?.fulfillment_method === "SELF_PICKUP" ||
-        order?.fulfillment_type === "BRANCH_PICKUP" ||
-        order?.shipping_method === "pickup" ||
-        order?.delivery_method === "pickup" ||
-        order?.delivery_type === "pickup" ||
+      const fulfillmentMethod = order?.fulfillment_method || order?.fulfillment_type || rfq?.fulfillment_method || rfq?.fulfillment_type;
+      const deliveryMethod = order?.delivery_method || order?.delivery_type || order?.shipping_method || rfq?.delivery_method || rfq?.delivery_type;
+
+      let isPickup = false;
+      if (fulfillmentMethod === "DELIVERY" || deliveryMethod === "delivery" || deliveryMethod === "shipping") {
+        isPickup = false;
+      } else if (
+        fulfillmentMethod === "BRANCH_PICKUP" ||
+        fulfillmentMethod === "SELF_PICKUP" ||
+        fulfillmentMethod === "pickup" ||
+        deliveryMethod === "pickup" ||
         order?.is_pickup === true ||
-        order?.pickup_branch ||
-        order?.pickup_location ||
-        String(order?.delivery_location || "").includes("فرع") ||
-        String(order?.delivery_location || "").includes("استلام") ||
-        (rfq && (
-          rfq.fulfillment_method === "BRANCH_PICKUP" ||
-          rfq.fulfillment_method === "pickup" ||
-          rfq.fulfillment_method === "SELF_PICKUP" ||
-          rfq.fulfillment_type === "BRANCH_PICKUP" ||
-          rfq.delivery_method === "pickup" ||
-          rfq.delivery_type === "pickup" ||
-          rfq.is_pickup === true ||
-          String(rfq.delivery_location || "").includes("فرع") ||
-          String(rfq.delivery_location || "").includes("استلام")
-        ));
+        rfq?.is_pickup === true
+      ) {
+        isPickup = true;
+      }
 
       if (isPickup) continue;
 
@@ -451,13 +563,24 @@ export class CourierService {
       );
 
       if (existingIdx === -1) {
-        // Create new delivery record
-        const newDelivery = buildDeliveryFromOrder(order, rfqs, profiles, activeCourierId);
+        const assignedCourier = order.courier_id || order.courierId || order.driver_id || activeCourierId;
+        const newDelivery = buildDeliveryFromOrder(order, rfqs, profiles, assignedCourier);
         allDeliveries.unshift(newDelivery);
         modified = true;
       } else {
-        // Sync status if needed and delivery is not yet DELIVERED/CANCELLED
+        // Sync status & assigned courier if needed
         const current = allDeliveries[existingIdx];
+        const assignedCourier = order.courier_id || order.courierId || order.driver_id || activeCourierId;
+        if (assignedCourier && current.courier_id !== assignedCourier && (current.courier_id === "courier-demo-id" || !current.courier_id)) {
+          current.courier_id = assignedCourier;
+          const cp = profiles.find((p) => p.id === assignedCourier);
+          if (cp) {
+            current.courier_name = cp.full_name || cp.name || current.courier_name;
+            current.courier_phone = cp.phone || current.courier_phone;
+          }
+          modified = true;
+        }
+
         if (order.courier_status && current.delivery_status !== order.courier_status) {
           current.delivery_status = order.courier_status;
           current.updated_at = new Date().toISOString();
@@ -485,19 +608,20 @@ export class CourierService {
    * Directly creates or updates a delivery record for a newly placed order.
    */
   static createDeliveryForOrder(order: any, activeCourierId?: string): DeliveryRecord | null {
-    const isPickup =
-      order?.fulfillment_method === "BRANCH_PICKUP" ||
-      order?.fulfillment_method === "pickup" ||
-      order?.fulfillment_method === "SELF_PICKUP" ||
-      order?.fulfillment_type === "BRANCH_PICKUP" ||
-      order?.shipping_method === "pickup" ||
-      order?.delivery_method === "pickup" ||
-      order?.delivery_type === "pickup" ||
-      order?.is_pickup === true ||
-      order?.pickup_branch ||
-      order?.pickup_location ||
-      String(order?.delivery_location || "").includes("فرع") ||
-      String(order?.delivery_location || "").includes("استلام");
+    const fulfillmentMethod = order?.fulfillment_method || order?.fulfillment_type;
+    const deliveryMethod = order?.delivery_method || order?.delivery_type || order?.shipping_method;
+
+    let isPickup = false;
+    if (fulfillmentMethod === "DELIVERY" || deliveryMethod === "delivery" || deliveryMethod === "shipping") {
+      isPickup = false;
+    } else if (
+      fulfillmentMethod === "BRANCH_PICKUP" ||
+      fulfillmentMethod === "SELF_PICKUP" ||
+      deliveryMethod === "pickup" ||
+      order?.is_pickup === true
+    ) {
+      isPickup = true;
+    }
 
     if (isPickup) {
       console.log(`[CourierService] Skipping delivery creation for branch pickup order: ${order?.id}`);
@@ -516,7 +640,8 @@ export class CourierService {
       (d) => d.id === delId || d.order_id === orderId || d.id === orderId
     );
 
-    const deliveryRecord = buildDeliveryFromOrder(order, rfqs, profiles, activeCourierId);
+    const targetCourierId = order.courier_id || order.courierId || order.driver_id || activeCourierId;
+    const deliveryRecord = buildDeliveryFromOrder(order, rfqs, profiles, targetCourierId);
 
     if (existingIdx >= 0) {
       allDeliveries[existingIdx] = {
@@ -549,19 +674,22 @@ export class CourierService {
 
     return allDeliveries.filter((d) => {
       const isPickupDel =
-        d.dropoff_address?.includes("استلام من فرع") ||
-        d.dropoff_address?.includes("استلام من الفرع") ||
-        d.pickup_address?.includes("استلام من فرع") ||
-        (d.delivery_fee_earned === 0 && d.dropoff_address?.includes("فرع"));
+        d.dropoff_address?.includes("استلام من فرع المورد") ||
+        d.dropoff_address?.includes("استلام من الفرع");
 
       if (isPickupDel) return false;
 
-      return (
-        d.courier_id === courierId ||
-        d.courier_id === "courier-demo-id" ||
-        courierId === "courier-demo-id" ||
-        !d.courier_id
-      );
+      // Courier visibility logic:
+      // If courierId is courier-demo-id or courier-1 or not specified, show demo tasks and tasks assigned to courier-1 or unassigned tasks.
+      if (!courierId || courierId === "courier-demo-id" || courierId === "courier-1") {
+        return (
+          d.courier_id === courierId ||
+          d.courier_id === "courier-demo-id" ||
+          d.courier_id === "courier-1" ||
+          !d.courier_id
+        );
+      }
+      return d.courier_id === courierId || d.courier_id === "courier-demo-id" || !d.courier_id;
     });
   }
 

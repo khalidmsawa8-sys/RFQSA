@@ -281,6 +281,18 @@ class RfqModel extends Equatable {
   String get partsDescription => items.isNotEmpty ? items.map((i) => i.partName).join(' + ') : 'قطع غيار متنوعة';
   _VehicleAdapter get vehicle => _VehicleAdapter(carMake, carModel, carYear, plateNumber, vin);
 
+  bool get isPickup {
+    final dMethod = (deliveryMethod ?? '').toLowerCase();
+    final fMethod = (fulfillmentMethod ?? '').toLowerCase();
+    if (dMethod == 'delivery' || dMethod == 'shipping' || fMethod == 'delivery') return false;
+    return dMethod == 'pickup' ||
+        fMethod == 'pickup' ||
+        fMethod == 'self_pickup' ||
+        fMethod == 'branch_pickup' ||
+        deliveryLocation == 'استلام من فرع المورد' ||
+        deliveryLocation == 'استلام يدوي';
+  }
+
   bool get isExpired {
     if (status == 'closed' || status == 'cancelled' || status == 'expired') return true;
     if (expiresAt != null) {

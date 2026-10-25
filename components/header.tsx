@@ -67,9 +67,21 @@ export default function Header() {
         if (isDashboardRoute) {
           setIsLoggedIn(true);
           const defaultRole = pathname.startsWith("/client") ? "client" : pathname.startsWith("/vendor") ? "vendor" : "admin";
-          const defaultName = defaultRole === "admin" ? "المدير العام للمنصة" : defaultRole === "vendor" ? "مؤسسة قطع الغيار المعتمدة" : "شركة المشتريات الوطنية";
-          setUserName(cookieUserName || defaultName);
+          const defaultName = defaultRole === "admin" ? "المدير العام للمنصة" : defaultRole === "vendor" ? "متجر المورد" : "منشأة العميل";
+          setUserName(cookieUserName && cookieUserName !== "شركة المشتريات الوطنية" && cookieUserName !== "مؤسسة قطع الغيار المعتمدة" ? cookieUserName : defaultName);
           setUserRole(cookieRole || defaultRole);
+
+          fetch("/api/v1/account/profile")
+            .then((r) => r.json())
+            .then((d) => {
+              if (d?.success && d?.profile) {
+                const realName = d.profile.company_name || d.profile.full_name;
+                if (realName && realName !== "شركة المشتريات الوطنية" && realName !== "مؤسسة قطع الغيار المعتمدة") {
+                  setUserName(realName);
+                }
+              }
+            })
+            .catch(() => {});
           return;
         }
 

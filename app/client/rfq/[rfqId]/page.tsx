@@ -45,6 +45,7 @@ interface RFQExtraDetails {
   rfqType?: string;
   targetVendorName?: string;
   deliveryMethod?: string;
+  fulfillmentMethod?: string;
   notes?: string;
 }
 
@@ -75,6 +76,7 @@ function parseRFQExtraDetails(parts_description?: string, delivery_location?: st
         rfqType: item0.rfqType || "public",
         targetVendorName: item0.targetVendorName || undefined,
         deliveryMethod: item0.deliveryMethod || undefined,
+        fulfillmentMethod: item0.fulfillmentMethod || undefined,
         notes: item0.notes || undefined,
       };
     }
@@ -176,7 +178,7 @@ function VendorAvatar({ name, avatarUrl }: { name: string; avatarUrl?: string })
 
 function parseQuoteTimingAndNotes(notes?: string | null, delivery_snapshot?: any, delivery_days?: number | null) {
   let prepTimeText = "يومان";
-  let cleanNotes = notes || "تتوفر خيارات متعددة للقطع مع الضمان المعتمد.";
+  let cleanNotes = "";
 
   // 1. From snapshot if available
   if (delivery_snapshot?.preparation_time?.text) {
@@ -194,9 +196,6 @@ function parseQuoteTimingAndNotes(notes?: string | null, delivery_snapshot?: any
       .replace(/⏱️?\s*مدة التجهيز:\s*[^|]+(\||$)/i, "")
       .replace(/📝?\s*ملاحظات:\s*/i, "")
       .trim();
-    if (!cleanNotes) {
-      cleanNotes = "تتوفر خيارات متعددة للقطع مع الضمان المعتمد.";
-    }
   }
 
   // 3. Delivery Time Text
@@ -246,6 +245,42 @@ export default function RFQDetailPage() {
   const [walletBalance, setWalletBalance] = useState<number | null>(null);
   const [balanceLoading, setBalanceLoading] = useState(false);
   const [appliedCouponCode, setAppliedCouponCode] = useState<string | null>(null);
+
+  // Platform business & commission policies
+  const [platformSettings, setPlatformSettings] = useState<{
+    vat_percent: number;
+    platform_commission_percent: number;
+    client_platform_fee_percent?: number;
+    vendor_platform_fee_percent?: number;
+    vat_number?: string;
+    cr_number?: string;
+  }>({
+    vat_percent: 15,
+    platform_commission_percent: 5,
+    client_platform_fee_percent: 5,
+    vendor_platform_fee_percent: 10,
+    vat_number: "310987654300003",
+    cr_number: "1010789456",
+  });
+
+  useEffect(() => {
+    fetch("/api/v1/settings")
+      .then((r) => r.json())
+      .then((d) => {
+        const s = d?.settings || d?.data;
+        if (s) {
+          setPlatformSettings({
+            vat_percent: Number(s.vat_percent ?? 15),
+            platform_commission_percent: Number(s.platform_commission_percent ?? 5),
+            client_platform_fee_percent: Number(s.client_platform_fee_percent ?? s.platform_commission_percent ?? 5),
+            vendor_platform_fee_percent: Number(s.vendor_platform_fee_percent ?? 10),
+            vat_number: s.vat_number,
+            cr_number: s.cr_number,
+          });
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   // Filter sheet
   const [filterOpen, setFilterOpen] = useState(false);
@@ -397,11 +432,28 @@ export default function RFQDetailPage() {
       if (rawQuotes.length === 0) {
         const { data: quotesData } = await supabase
           .from("quotes")
-          .select("*, profiles(full_name, company_name, tax_number, commercial_register, national_address)")
+          .select("*, profiles(full_name, company_name, tax_number, commercial_register, national_address, phone, city, district, address, ref_code, rating, orders_count, completed_deals, commitment_rate)")
           .eq("rfq_id", rfqId)
           .order("created_at", { ascending: false });
         if (quotesData && Array.isArray(quotesData)) {
           rawQuotes = quotesData;
+        }
+      }
+
+      // Fetch vendor profiles for all quotes to ensure 100% database accuracy
+      const vendorIds = Array.from(new Set(rawQuotes.map((q) => q.vendor_id).filter(Boolean)));
+      const vendorProfilesMap = new Map<string, any>();
+      if (vendorIds.length > 0) {
+        try {
+          const { data: profs } = await supabase
+            .from("profiles")
+            .select("id, full_name, company_name, phone, city, district, address, tax_number, commercial_register, national_address, ref_code, rating, orders_count, completed_deals, commitment_rate")
+            .in("id", vendorIds);
+          if (Array.isArray(profs)) {
+            profs.forEach((p: any) => vendorProfilesMap.set(p.id, p));
+          }
+        } catch (profErr) {
+          console.warn("Error fetching vendor profiles:", profErr);
         }
       }
 
@@ -437,10 +489,30 @@ export default function RFQDetailPage() {
         }
         if (!Array.isArray(parsedItems)) parsedItems = [];
 
+        const dbVendor = vendorProfilesMap.get(q.vendor_id);
+        const resolvedProfile = dbVendor ? {
+          id: dbVendor.id,
+          full_name: dbVendor.full_name || dbVendor.company_name,
+          company_name: dbVendor.company_name || dbVendor.full_name,
+          phone: dbVendor.phone || q.profiles?.phone || "",
+          city: dbVendor.city || "",
+          district: dbVendor.district || "",
+          address: dbVendor.address || "",
+          tax_number: dbVendor.tax_number || q.profiles?.tax_number || "",
+          commercial_register: dbVendor.commercial_register || q.profiles?.commercial_register || "",
+          national_address: dbVendor.national_address || dbVendor.address || q.profiles?.national_address || "",
+          ref_code: dbVendor.ref_code || q.profiles?.ref_code || "",
+          rating: dbVendor.rating ?? 5.0,
+          orders_count: dbVendor.orders_count ?? 0,
+          completed_deals: dbVendor.completed_deals ?? 0,
+          commitment_rate: dbVendor.commitment_rate ?? "98%",
+        } : q.profiles;
+
         return {
           ...q,
           items: parsedItems,
-          avgRating: stats && stats.count > 0 && !isNaN(stats.sum / stats.count) ? stats.sum / stats.count : 5.0,
+          profiles: resolvedProfile,
+          avgRating: stats && stats.count > 0 && !isNaN(stats.sum / stats.count) ? stats.sum / stats.count : (dbVendor?.rating ?? 5.0),
         };
       });
       setQuotes(enriched);
@@ -549,11 +621,18 @@ export default function RFQDetailPage() {
 
       // 2. Direct server API updates
       try {
-        await fetch(`/api/quotes/${selectedQuote.id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ status: "accepted" }),
-        });
+        await Promise.all([
+          fetch(`/api/quotes/${selectedQuote.id}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ status: "accepted" }),
+          }),
+          fetch(`/api/rfqs/${rfq.id}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ status: "accepted", accepted_quote_id: selectedQuote.id }),
+          }),
+        ]);
       } catch (e) {}
 
       // Record coupon usage if a code was applied
@@ -633,6 +712,60 @@ export default function RFQDetailPage() {
         console.warn("Wallet record warning:", wErr);
       }
 
+      const rfqExtra = parseRFQExtraDetails(rfq.parts_description, rfq.delivery_location);
+      const isExplicitDelivery =
+        (rfq as any).fulfillment_method === "DELIVERY" ||
+        (rfq as any).delivery_method === "delivery" ||
+        (rfq as any).delivery_method === "shipping" ||
+        (rfq as any).is_pickup === false ||
+        rfqExtra.deliveryMethod === "delivery" ||
+        rfqExtra.fulfillmentMethod === "DELIVERY";
+
+      const isPickup = !isExplicitDelivery && Boolean(
+        (rfq as any).fulfillment_method === "SELF_PICKUP" ||
+        (rfq as any).fulfillment_method === "BRANCH_PICKUP" ||
+        (rfq as any).delivery_method === "pickup" ||
+        (rfq as any).is_pickup === true ||
+        rfqExtra.deliveryMethod === "pickup" ||
+        rfqExtra.fulfillmentMethod === "SELF_PICKUP" ||
+        rfqExtra.fulfillmentMethod === "BRANCH_PICKUP" ||
+        rfq.delivery_location === "استلام من فرع المورد" ||
+        rfq.delivery_location === "استلام يدوي"
+      );
+
+      const fulfillmentMethod = isPickup ? "BRANCH_PICKUP" : "DELIVERY";
+      const deliveryMethod = isPickup ? "pickup" : "delivery";
+      const deliveryLocation = rfq.delivery_location || rfqExtra.deliveryLocation || (isPickup ? "استلام من فرع المورد" : "الرياض");
+
+      const clientFeePercent = Number(
+        (selectedQuote as any)?.client_platform_fee_percent ??
+        (platformSettings as any).client_platform_fee_percent ??
+        (selectedQuote as any)?.platform_commission_percent ??
+        platformSettings.platform_commission_percent ??
+        5
+      );
+      const vendorFeePercent = Number(
+        (selectedQuote as any)?.vendor_platform_fee_percent ??
+        (platformSettings as any).vendor_platform_fee_percent ??
+        15
+      );
+      const vatRate = Number((selectedQuote as any)?.vat_percent ?? platformSettings.vat_percent ?? 15);
+      const deliveryFee = isPickup ? 0 : Number(selectedQuote.delivery_cost ?? 25);
+      const netBase = Math.max(0, finalTotal - deliveryFee);
+      const parsedItemsTotal = parsedItems.length > 0
+        ? Number(parsedItems.reduce((acc: number, it: any) => acc + ((Number(it.unit_price) || 0) * (Number(it.quantity) || 1)), 0).toFixed(2))
+        : 0;
+      const factor = 1 + (clientFeePercent / 100) + (vatRate / 100);
+      const calculatedSubtotal = parsedItemsTotal > 0
+        ? parsedItemsTotal
+        : (Number((selectedQuote as any)?.parts_subtotal) || Number((netBase / factor).toFixed(2)));
+      const calculatedClientFee = Number(((calculatedSubtotal * clientFeePercent) / 100).toFixed(2));
+      const calculatedVendorFee = Number(((calculatedSubtotal * vendorFeePercent) / 100).toFixed(2));
+      // Tax is computed on: Parts + Client Platform Fee + Delivery Fee
+      const taxableBase = Number((calculatedSubtotal + calculatedClientFee + deliveryFee).toFixed(2));
+      const calculatedTax = Number(((taxableBase * (vatRate / 100))).toFixed(2));
+      const calculatedPartsVat = Number(((calculatedSubtotal * (vatRate / 100))).toFixed(2));
+
       // 5. Insert order via Supabase
       try {
         await supabase.from("orders").insert({
@@ -643,6 +776,22 @@ export default function RFQDetailPage() {
           vendor_id: selectedQuote.vendor_id,
           status: "confirmed",
           total_price: finalTotal,
+          subtotal: calculatedSubtotal,
+          parts_subtotal: calculatedSubtotal,
+          platform_commission: calculatedClientFee,
+          platform_commission_percent: clientFeePercent,
+          client_platform_fee: calculatedClientFee,
+          client_platform_fee_percent: clientFeePercent,
+          vendor_platform_fee: calculatedVendorFee,
+          vendor_platform_fee_percent: vendorFeePercent,
+          tax_amount: calculatedTax,
+          parts_vat: calculatedPartsVat,
+          vat_percent: vatRate,
+          delivery_fee: deliveryFee,
+          delivery_method: deliveryMethod,
+          fulfillment_method: fulfillmentMethod,
+          delivery_location: deliveryLocation,
+          is_pickup: isPickup,
           created_at: new Date().toISOString(),
         });
       } catch (oErr) {
@@ -716,8 +865,24 @@ export default function RFQDetailPage() {
             vendor_id: selectedQuote.vendor_id,
             status: "confirmed",
             total_price: finalTotal,
+            subtotal: calculatedSubtotal,
+            parts_subtotal: calculatedSubtotal,
+            platform_commission: calculatedClientFee,
+            platform_commission_percent: clientFeePercent,
+            client_platform_fee: calculatedClientFee,
+            client_platform_fee_percent: clientFeePercent,
+            vendor_platform_fee: calculatedVendorFee,
+            vendor_platform_fee_percent: vendorFeePercent,
+            tax_amount: calculatedTax,
+            vat_percent: vatRate,
             items: parsedItems,
             deal_id: dealId,
+            fulfillment_method: fulfillmentMethod,
+            delivery_method: deliveryMethod,
+            delivery_type: deliveryMethod,
+            delivery_location: deliveryLocation,
+            delivery_fee: deliveryFee,
+            is_pickup: isPickup,
           }),
         });
       } catch (apiErr) {
@@ -754,7 +919,9 @@ export default function RFQDetailPage() {
     }
   };
 
-  const getVendorName = (q: Quote) => q.profiles?.company_name || q.profiles?.full_name || "مورد";
+  const getVendorName = (q: Quote) => {
+    return q.profiles?.company_name || q.profiles?.full_name || (q.vendor_id ? `مورد (${q.vendor_id})` : "مورد معتمد");
+  };
 
   const copyVin = () => {
     if (rfq?.vin) {
@@ -794,8 +961,15 @@ export default function RFQDetailPage() {
   if (!rfq) return null;
 
   const shortId = rfq.id.slice(0, 8).toUpperCase();
-
   const isRfqExpired = rfq.status === "cancelled" || rfq.status === "expired";
+  const isPickupOrder = Boolean(
+    (rfq as any)?.fulfillment_method === "SELF_PICKUP" ||
+    (rfq as any)?.fulfillment_method === "BRANCH_PICKUP" ||
+    (rfq as any)?.delivery_method === "pickup" ||
+    (rfq as any)?.is_pickup === true ||
+    String(rfq.delivery_location || "").includes("استلام من فرع") ||
+    String(rfq.delivery_location || "").includes("استلام من الفرع")
+  );
 
   return (
     <div className="min-h-screen bg-[#f0f2f5]" dir="rtl">
@@ -1084,39 +1258,89 @@ export default function RFQDetailPage() {
                         <span className="text-[9px] text-slate-400 font-medium block">تجهيز وفحص القطع</span>
                       </div>
 
-                      {/* Box B: مدة التوصيل */}
+                      {/* Box B: مدة التوصيل / الاستلام */}
                       <div className="bg-white p-2.5 rounded-xl border border-slate-100 shadow-2xs space-y-1 text-right">
                         <div className="flex items-center justify-between">
-                          <span className="text-[10px] text-emerald-900 font-bold">مدة التوصيل</span>
+                          <span className="text-[10px] text-emerald-900 font-bold">
+                            {isPickupOrder ? "طريقة الاستلام" : "مدة التوصيل"}
+                          </span>
                           <div className="w-5 h-5 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
-                            <Truck className="w-3 h-3" />
+                            {isPickupOrder ? <Store className="w-3 h-3" /> : <Truck className="w-3 h-3" />}
                           </div>
                         </div>
                         <div className="text-xs font-black text-emerald-700 flex items-center gap-1">
                           <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
-                          <span className="truncate">{timing.deliveryTimeText}</span>
+                          <span className="truncate">
+                            {isPickupOrder ? "استلام من الفرع" : timing.deliveryTimeText}
+                          </span>
                         </div>
-                        <span className="text-[9px] text-slate-400 font-medium block">أسطول رفق المعتمد</span>
+                        <span className="text-[9px] text-slate-400 font-medium block">
+                          {isPickupOrder ? "مباشرة بعد اكتمال التجهيز" : "أسطول رفق المعتمد"}
+                        </span>
                       </div>
                     </div>
 
-                    {/* 2. Total Price Section (إجمالي العرض المالي) */}
-                    <div className="bg-[#E8F4F1]/60 border border-emerald-100/90 rounded-2xl p-3 flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <div className="w-7 h-7 rounded-xl bg-emerald-600 text-white flex items-center justify-center shadow-2xs">
-                          <Tag className="w-3.5 h-3.5" />
+                    {/* 2. Total Price Section (إجمالي العرض المالي مع تفاصيل رسوم المنصة والضريبة) */}
+                    {(() => {
+                      const commRate = Number(
+                        (quote as any)?.client_platform_fee_percent ??
+                        (platformSettings as any).client_platform_fee_percent ??
+                        (quote as any)?.platform_commission_percent ??
+                        platformSettings.platform_commission_percent ??
+                        5
+                      );
+                      const vatRate = Number((quote as any)?.vat_percent ?? platformSettings.vat_percent ?? 15);
+                      const totalPrice = Number(quote.total_price || 0);
+                      const deliveryFee = isPickupOrder ? 0 : Number(quote.delivery_cost || 0);
+
+                      const netBase = Math.max(0, totalPrice - deliveryFee);
+                      const factor = 1 + (commRate / 100) + (vatRate / 100);
+                      const partsSubtotal = Number((quote as any)?.parts_subtotal) || Number((netBase / factor).toFixed(2));
+                      const platformFee = Number((quote as any)?.client_platform_fee ?? (quote as any)?.platform_commission) || Number(((partsSubtotal * commRate) / 100).toFixed(2));
+                      const subtotalBeforeVat = Number((partsSubtotal + platformFee).toFixed(2));
+                      const taxAmount = Number((quote as any)?.tax_amount) || Number(((partsSubtotal * vatRate) / 100).toFixed(2));
+
+                      return (
+                        <div className="bg-[#E8F4F1]/70 border border-emerald-100/90 rounded-2xl p-3 space-y-2.5">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <div className="w-7 h-7 rounded-xl bg-emerald-600 text-white flex items-center justify-center shadow-2xs">
+                                <Tag className="w-3.5 h-3.5" />
+                              </div>
+                              <div>
+                                <span className="text-xs font-black text-slate-800 block">إجمالي العرض المالي</span>
+                                <span className="text-[9.5px] text-emerald-800 font-bold">شامل رسوم المنصة والضريبة والشحن</span>
+                              </div>
+                            </div>
+                            <span className="text-base font-black text-emerald-950 font-mono">
+                              {quote.total_price != null
+                                ? `${Number(quote.total_price).toLocaleString("ar-SA", { minimumFractionDigits: 2 })} ر.س`
+                                : "—"}
+                            </span>
+                          </div>
+
+                          {/* Explicit Financial Breakdown Row */}
+                          <div className="pt-2 border-t border-emerald-200/60 grid grid-cols-4 gap-1 text-center text-[10px]">
+                            <div className="bg-white/90 rounded-lg p-1.5 border border-slate-200/80 shadow-2xs">
+                              <span className="text-slate-500 block text-[9px] font-medium">القطع</span>
+                              <strong className="font-mono text-slate-800 font-bold">{partsSubtotal.toLocaleString("ar-SA", { minimumFractionDigits: 2 })} ر.س</strong>
+                            </div>
+                            <div className="bg-indigo-50/90 rounded-lg p-1.5 border border-indigo-200/80 shadow-2xs">
+                              <span className="text-indigo-700 block text-[9px] font-bold">رسوم المنصة ({commRate}%)</span>
+                              <strong className="font-mono text-indigo-950 font-black">+{platformFee.toLocaleString("ar-SA", { minimumFractionDigits: 2 })} ر.س</strong>
+                            </div>
+                            <div className="bg-slate-100/90 rounded-lg p-1.5 border border-slate-300/80 shadow-2xs">
+                              <span className="text-slate-700 block text-[9px] font-bold">قبل الضريبة</span>
+                              <strong className="font-mono text-slate-900 font-black">{subtotalBeforeVat.toLocaleString("ar-SA", { minimumFractionDigits: 2 })} ر.س</strong>
+                            </div>
+                            <div className="bg-blue-50/90 rounded-lg p-1.5 border border-blue-200/80 shadow-2xs">
+                              <span className="text-blue-700 block text-[9px] font-bold">ضريبة ({vatRate}%)</span>
+                              <strong className="font-mono text-blue-950 font-black">+{taxAmount.toLocaleString("ar-SA", { minimumFractionDigits: 2 })} ر.س</strong>
+                            </div>
+                          </div>
                         </div>
-                        <div>
-                          <span className="text-xs font-black text-slate-800 block">إجمالي العرض</span>
-                          <span className="text-[9px] text-emerald-800 font-bold">شامل ضريبة القيمة المضافة 15%</span>
-                        </div>
-                      </div>
-                      <span className="text-base font-black text-slate-950 font-mono">
-                        {quote.total_price != null
-                          ? `${Number(quote.total_price).toLocaleString("ar-SA", { minimumFractionDigits: 2 })} ريال`
-                          : "—"}
-                      </span>
-                    </div>
+                      );
+                    })()}
 
                     {/* 3. Chassis / VIN (الهيكل) Row */}
                     <div className="flex items-center justify-between text-xs px-1 text-slate-500 pt-0.5 border-t border-slate-100">
@@ -1134,12 +1358,21 @@ export default function RFQDetailPage() {
                         <span>طريقة التوصيل:</span>
                       </span>
                       <div className="text-left font-bold text-slate-800 text-[11px] flex items-center gap-1">
-                        <span className="text-emerald-700">🚚 أسطول رفق</span>
-                        <span className="text-slate-400 font-normal">
-                          {quote.delivery_cost != null && Number(quote.delivery_cost) > 0
-                            ? `(رسوم الشحن: ${Number(quote.delivery_cost).toFixed(2)} ر.س)`
-                            : "(شحن مجاني)"}
-                        </span>
+                        {isPickupOrder ? (
+                          <>
+                            <span className="text-purple-700">🏪 استلام من فرع المورد</span>
+                            <span className="text-slate-400 font-normal">(بدون رسوم توصيل)</span>
+                          </>
+                        ) : (
+                          <>
+                            <span className="text-emerald-700">🚚 أسطول رفق</span>
+                            <span className="text-slate-400 font-normal">
+                              {quote.delivery_cost != null && Number(quote.delivery_cost) > 0
+                                ? `(رسوم الشحن: ${Number(quote.delivery_cost).toFixed(2)} ر.س)`
+                                : "(شحن مجاني)"}
+                            </span>
+                          </>
+                        )}
                       </div>
                     </div>
 
@@ -1150,7 +1383,7 @@ export default function RFQDetailPage() {
                         <span>ملاحظات:</span>
                       </span>
                       <span className="text-slate-700 text-xs font-medium text-left leading-relaxed line-clamp-1">
-                        {timing.cleanNotes}
+                        {timing.cleanNotes || "لا توجد ملاحظات إضافية من المورد"}
                       </span>
                     </div>
 
@@ -1232,14 +1465,17 @@ export default function RFQDetailPage() {
       </div>
 
       {/* Quote Details & Part Selection Inspection Modal */}
-      <QuoteDetailsInspectionModal
-        isOpen={!!inspectedQuote}
-        onClose={() => setInspectedQuote(null)}
-        quote={inspectedQuote}
-        rfq={rfq}
-        clientProfile={clientProfile}
-        onAccept={(q, items, total, code) => handleAccept(q, items, total, code)}
-      />
+      {inspectedQuote && rfq && (
+        <QuoteDetailsInspectionModal
+          isOpen={!!inspectedQuote}
+          onClose={() => setInspectedQuote(null)}
+          quote={inspectedQuote}
+          rfq={rfq}
+          clientProfile={clientProfile}
+          platformSettings={platformSettings}
+          onAccept={(q, items, total, code) => handleAccept(q, items, total, code)}
+        />
+      )}
 
       {/* Vendor Profile & Reviews Modal */}
       <VendorDetailsModal
@@ -1347,7 +1583,7 @@ export default function RFQDetailPage() {
                 </div>
 
                 {/* Recipient & Location Info Grid */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                   {/* اسم المستلم */}
                   <div className="border border-blue-100 rounded-xl p-3 bg-blue-50/50 space-y-0.5">
                     <div className="flex items-center justify-end gap-1.5 text-xs font-bold text-blue-900">
@@ -1356,17 +1592,6 @@ export default function RFQDetailPage() {
                     </div>
                     <p className="text-center text-sm font-extrabold text-slate-900 truncate">
                       {extra.recipientName || "غير مدخل"}
-                    </p>
-                  </div>
-
-                  {/* رقم للتواصل */}
-                  <div className="border border-emerald-100 rounded-xl p-3 bg-emerald-50/50 space-y-0.5">
-                    <div className="flex items-center justify-end gap-1.5 text-xs font-bold text-emerald-900">
-                      <span>رقم للتواصل</span>
-                      <Phone className="w-3.5 h-3.5 text-emerald-600" />
-                    </div>
-                    <p dir="ltr" className="text-center text-sm font-mono font-bold text-slate-900">
-                      {extra.recipientPhone || "—"}
                     </p>
                   </div>
 

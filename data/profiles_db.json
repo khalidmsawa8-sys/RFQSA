@@ -1,5 +1,101 @@
 [
   {
+    "id": "bef17965-10da-409f-9e7e-8457e26bfa92",
+    "created_at": "2026-10-17T12:00:54.607Z",
+    "is_active": true,
+    "full_name": "علاء",
+    "email": "sup-90601@rfqsa.tech",
+    "phone": "0506334096",
+    "password": "Aa123123",
+    "role": "vendor",
+    "is_admin": false,
+    "admin_role": null,
+    "company_name": "وهج الرواد ( فرع 1 )",
+    "ref_code": "SUP-90601",
+    "tax_number": "311292885500003",
+    "commercial_register": "1010202348",
+    "national_address": "الرياض -شارع علي بن ابي طالب - حي الصناعية",
+    "branches": [
+      {
+        "id": "br-1792238720787-3u94",
+        "vendor_id": "bef17965-10da-409f-9e7e-8457e26bfa92",
+        "name": "وهج الرواد ( الفرع 1 )",
+        "city": "الرياض",
+        "district": "الصناعية القديمه",
+        "address": "زيد بن حارثة, الصناعية القديمة, الصناعية, الرياض, محافظة الرياض, منطقة الرياض, 12878, السعودية",
+        "latitude": 24.63452,
+        "longitude": 46.7613,
+        "contact_name": "علاء",
+        "contact_phone": "0506334096",
+        "is_main": true,
+        "is_active": true,
+        "accepts_pickup": true,
+        "business_hours": {
+          "timezone": "Asia/Riyadh",
+          "schedule": {
+            "saturday": {
+              "isOpen": true,
+              "openTime": "08:00",
+              "closeTime": "22:00"
+            },
+            "sunday": {
+              "isOpen": true,
+              "openTime": "08:00",
+              "closeTime": "22:00"
+            },
+            "monday": {
+              "isOpen": true,
+              "openTime": "08:00",
+              "closeTime": "22:00"
+            },
+            "tuesday": {
+              "isOpen": true,
+              "openTime": "08:00",
+              "closeTime": "22:00"
+            },
+            "wednesday": {
+              "isOpen": true,
+              "openTime": "08:00",
+              "closeTime": "22:00"
+            },
+            "thursday": {
+              "isOpen": true,
+              "openTime": "08:00",
+              "closeTime": "22:00"
+            },
+            "friday": {
+              "isOpen": true,
+              "openTime": "16:00",
+              "closeTime": "22:00"
+            }
+          }
+        },
+        "created_at": "2026-10-17T12:05:20.787Z"
+      }
+    ],
+    "updated_at": "2026-10-17T16:38:23.977Z",
+    "rating": 0,
+    "reviews_count": 0,
+    "orders_count": 0,
+    "completed_deals": 0,
+    "balance": 0,
+    "wallet_balance": 0
+  },
+  {
+    "id": "user_mem_mv28jq9g",
+    "created_at": "2026-10-10T10:12:32.310Z",
+    "is_active": true,
+    "email": "tayyab.ziyaf@samnan.com.sa",
+    "phone": "0533196489",
+    "full_name": "محمود",
+    "company_name": "محمود",
+    "role": "client",
+    "role_id": "client_technician",
+    "password": "Aa123123",
+    "ref_code": "CUST-54171",
+    "updated_at": "2026-10-10T10:14:49.994Z"
+  },
+  {
     "id": "admin-demo-id",
     "role": "admin",
     "email": "admin@rfqsa.tech",
@@ -9,7 +105,12 @@
     "full_name": "المدير العام للمنصة",
     "company_name": "إدارة منصة رِفق",
     "phone": "0500000000",
-    "city": "الرياض"
+    "city": "الرياض",
+    "ref_code": "ADM-001",
+    "created_at": "2026-08-01T08:00:00.000Z",
+    "balance": 129,
+    "wallet_balance": 129,
+    "updated_at": "2026-10-24T21:52:40.900Z"
   },
   {
     "id": "vendor-demo-id",
@@ -32,7 +133,11 @@
     "ref_code": "VND-501",
     "role_id": "vendor_owner",
     "custom_role": "vendor_owner",
-    "password": "123456"
+    "password": "123456",
+    "created_at": "2026-09-25T17:50:28.579Z",
+    "balance": 32662,
+    "wallet_balance": 32662,
+    "updated_at": "2026-10-24T21:52:40.851Z"
   },
   {
     "id": "v-supplier-1",
@@ -51,7 +156,8 @@
     "business_hours": "8:00 ص - 10:00 م",
     "specialized_brands": [],
     "specializes_in_all_brands": true,
-    "ref_code": "VND-501"
+    "ref_code": "VND-501",
+    "created_at": "2026-09-22T17:50:28.579Z"
   },
   {
     "id": "v-supplier-2",
@@ -69,7 +175,71 @@
     "phone": "0509988776",
     "business_hours": "9:00 ص - 11:00 م",
     "specialized_brands": [],
-    "specializes_in_all_brands": true
+    "specializes_in_all_brands": true,
+    "ref_code": "SUP-1003",
+    "created_at": "2026-09-19T17:50:28.579Z",
+    "branches": [
+      {
+        "id": "br-sup2-2",
+        "vendor_id": "v-supplier-2",
+        "name": "شركة المحركات الوطنية  ( الصناعية )",
+        "city": "الرياض",
+        "district": "حي السلي",
+        "address": "الشنانة, غبيرا, الدحو, الرياض, محافظة الرياض, منطقة الرياض, 12878, السعودية",
+        "latitude": 24.61732,
+        "longitude": 46.73567,
+        "contact_name": "",
+        "contact_phone": "",
+        "is_main": true,
+        "is_active": true,
+        "accepts_pickup": true,
+        "business_hours": {
+          "timezone": "Asia/Riyadh",
+          "schedule": {
+            "saturday": {
+              "isOpen": true,
+              "openTime": "08:00",
+              "closeTime": "22:00"
+            },
+            "sunday": {
+              "isOpen": true,
+              "openTime": "08:00",
+              "closeTime": "22:00"
+            },
+            "monday": {
+              "isOpen": true,
+              "openTime": "08:00",
+              "closeTime": "22:00"
+            },
+            "tuesday": {
+              "isOpen": true,
+              "openTime": "08:00",
+              "closeTime": "22:00"
+            },
+            "wednesday": {
+              "isOpen": true,
+              "openTime": "08:00",
+              "closeTime": "22:00"
+            },
+            "thursday": {
+              "isOpen": true,
+              "openTime": "08:00",
+              "closeTime": "22:00"
+            },
+            "friday": {
+              "isOpen": true,
+              "openTime": "16:00",
+              "closeTime": "22:00"
+            }
+          }
+        },
+        "created_at": "2026-10-04T11:55:32.760Z"
+      }
+    ],
+    "updated_at": "2026-10-19T03:28:00.277Z",
+    "password": "Abood123",
+    "balance": 1775.45,
+    "wallet_balance": 1775.45
   },
   {
     "id": "v-supplier-3",
@@ -87,7 +257,9 @@
     "phone": "0543322110",
     "business_hours": "8:30 ص - 10:30 م",
     "specialized_brands": [],
-    "specializes_in_all_brands": true
+    "specializes_in_all_brands": true,
+    "ref_code": "SUP-1004",
+    "created_at": "2026-09-16T17:50:28.579Z"
   },
   {
     "id": "v-supplier-4",
@@ -105,7 +277,9 @@
     "phone": "0564433221",
     "business_hours": "9:00 ص - 10:00 م",
     "specialized_brands": [],
-    "specializes_in_all_brands": true
+    "specializes_in_all_brands": true,
+    "ref_code": "SUP-1005",
+    "created_at": "2026-09-13T17:50:28.579Z"
   },
   {
     "id": "client-demo-id",
@@ -119,7 +293,11 @@
     "tax_number": "300123456700003",
     "commercial_register": "1010987654",
     "national_address": "الرياض - طريق الملك فهد - حي العليا",
-    "city": "الرياض"
+    "city": "الرياض",
+    "created_at": "2026-09-10T17:50:28.579Z",
+    "balance": 43.64,
+    "wallet_balance": 43.64,
+    "updated_at": "2026-10-02T08:23:36.026Z"
   },
   {
     "id": "client-2",
@@ -132,7 +310,8 @@
     "tax_number": "300765432100003",
     "commercial_register": "1010665544",
     "national_address": "جدة - طريق المدينة المنورة - حي الروضة",
-    "city": "جدة"
+    "city": "جدة",
+    "created_at": "2026-09-07T17:50:28.579Z"
   },
   {
     "id": "client-3",
@@ -145,7 +324,12 @@
     "tax_number": "300654321000003",
     "commercial_register": "1010554433",
     "national_address": "الرياض - حي السلي - مخرج 18",
-    "city": "الرياض"
+    "city": "الرياض",
+    "created_at": "2026-09-04T17:50:28.579Z",
+    "balance": 2310.58,
+    "wallet_balance": 2310.58,
+    "updated_at": "2026-10-19T03:27:59.939Z",
+    "password": "Aa123123"
   },
   {
     "id": "vendor-2",
@@ -159,7 +343,8 @@
     "tax_number": "300876543200003",
     "commercial_register": "1010776655",
     "national_address": "الدمام - طريق الملك سعود - حي الخالدية",
-    "city": "الدمام"
+    "city": "الدمام",
+    "created_at": "2026-09-01T17:50:28.579Z"
   },
   {
     "id": "vendor-3",
@@ -173,7 +358,8 @@
     "tax_number": "300543210900003",
     "commercial_register": "1010443322",
     "national_address": "مكة المكرمة - صناعية الكعكية",
-    "city": "مكة المكرمة"
+    "city": "مكة المكرمة",
+    "created_at": "2026-08-29T17:50:28.579Z"
   },
   {
     "id": "courier-1",
@@ -183,6 +369,10 @@
     "company_name": "خدمات التوصيل السريع",
     "ref_code": "COU-701",
     "phone": "0550011223",
-    "city": "الرياض"
+    "city": "الرياض",
+    "created_at": "2026-08-26T17:50:28.579Z",
+    "balance": 970,
+    "wallet_balance": 970,
+    "updated_at": "2026-10-24T21:52:40.869Z"
   }
 ]

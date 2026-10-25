@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import {
   loadAllNotifications,
+  saveAllNotifications,
   createAndDispatchNotification,
 } from "@/lib/notification-service";
 
@@ -28,21 +29,24 @@ export async function GET(req: NextRequest) {
       authUserId = user?.id;
     } catch (_) {}
 
-    const userId = queryUserId || authUserId || req.headers.get("x-user-id") || undefined;
-    const userRole = req.headers.get("x-user-role") || filterRole;
+    const cookieUserId = req.cookies.get("rfq_user_id")?.value;
+    const cookieRole = req.cookies.get("rfq_session")?.value;
+
+    const userId = queryUserId || authUserId || req.headers.get("x-user-id") || cookieUserId || undefined;
+    const userRole = req.headers.get("x-user-role") || filterRole || cookieRole;
 
     const all = loadAllNotifications();
 
     let userNotifications = all.filter((n) => {
       if (userId) {
         if (n.user_id === userId) return true;
-        if (userId.startsWith("client-demo") && n.user_id === "client-demo-id") return true;
-        if (userId.startsWith("vendor-demo") && n.user_id === "vendor-demo-id") return true;
+        if (userId.startsWith("client-demo") && (n.user_id === "client-demo-id" || n.user_id === "client-1")) return true;
+        if (userId.startsWith("vendor-demo") && (n.user_id === "vendor-demo-id" || n.user_id === "v-supplier-1")) return true;
         if (userId.startsWith("courier-demo") && n.user_id === "courier-demo-id") return true;
         return false;
       }
-      if (userRole === "client" && n.user_id === "client-demo-id") return true;
-      if (userRole === "vendor" && n.user_id === "vendor-demo-id") return true;
+      if (userRole === "client" && (n.user_id === "client-demo-id" || n.user_id === "client-1")) return true;
+      if (userRole === "vendor" && (n.user_id === "vendor-demo-id" || n.user_id === "v-supplier-1")) return true;
       if (userRole === "courier" && n.user_id === "courier-demo-id") return true;
       return true;
     });
@@ -168,3 +172,36 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+
+/**
+ * PATCH /api/v1/notifications
+ * Marks single notification or all user notifications as read
+ */
+export async function PATCH(req: NextRequest) {
+  try {
+    const body = await req.json();
+    const { id, all, userId } = body;
+    const cookieUserId = req.cookies.get("rfq_user_id")?.value;
+    const targetUserId = userId || cookieUserId;
+
+    const allNotifs = loadAllNotifications();
+
+    if (all && targetUserId) {
+      allNotifs.forEach((n) => {
+        if (n.user_id === targetUserId || targetUserId === "client-demo-id" || targetUserId === "vendor-demo-id") {
+          n.is_read = true;
+        }
+      });
+    } else if (id) {
+      const item = allNotifs.find((n) => n.id === id);
+      if (item) item.is_read = true;
+    }
+
+    saveAllNotifications(allNotifs);
+
+    return NextResponse.json({ success: true, message: "تم تحديث حالة الإشعار بنجاح ✓" });
+  } catch (err: any) {
+    return NextResponse.json({ success: false, error: err?.message }, { status: 500 });
+  }
+}
+

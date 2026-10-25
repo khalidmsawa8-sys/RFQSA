@@ -5,12 +5,20 @@ import { createClient } from "@/lib/supabase/client";
 import {
   Wallet, Plus, Minus, Search, X, ArrowUpCircle, ArrowDownCircle,
   Users, TrendingUp, TrendingDown, RefreshCw, Filter, Eye,
-  Download, Calendar, SlidersHorizontal, Check, Clock, Receipt, FileText
+  Download, Calendar, SlidersHorizontal, Check, Clock, Receipt, FileText,
+  Coins, Landmark, Building2, Store, UserCheck, ShieldCheck, ChevronLeft
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { DateRangeFilter, DateRangeValue } from "@/components/date-range-filter";
-import { exportAdminWalletLedgerToExcel, exportAdminWalletUsersToExcel, AdminWalletLedgerExportRow, AdminWalletUserExportRow } from "@/lib/excel-export";
+import {
+  exportAdminWalletLedgerToExcel,
+  exportAdminWalletUsersToExcel,
+  exportAdminPlatformWalletToExcel,
+  AdminWalletLedgerExportRow,
+  AdminWalletUserExportRow,
+  AdminPlatformWalletExportRow,
+} from "@/lib/excel-export";
 
 const supabase = createClient();
 
@@ -57,8 +65,29 @@ export default function AdminWalletPage() {
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState<"all" | "client" | "vendor">("all");
 
-  // View Mode: 'users' (أرصدة المستخدمين) | 'ledger' (كشف الحساب العام)
-  const [viewMode, setViewMode] = useState<"users" | "ledger">("users");
+  // View Mode: 'admin_wallet' (محفظة المنصة وعمولات الأدمن) | 'users' (أرصدة المستخدمين) | 'ledger' (كشف الحساب العام)
+  const [viewMode, setViewMode] = useState<"admin_wallet" | "users" | "ledger">("admin_wallet");
+
+  // Admin Platform Wallet State
+  const [adminWallet, setAdminWallet] = useState<{
+    balance: number;
+    totalBalance: number;
+    totalCommissions: number;
+    totalClientFees: number;
+    totalVendorFees: number;
+    totalTransactions: number;
+    transactions: any[];
+  }>({
+    balance: 0,
+    totalBalance: 0,
+    totalCommissions: 0,
+    totalClientFees: 0,
+    totalVendorFees: 0,
+    totalTransactions: 0,
+    transactions: [],
+  });
+
+  const [commissionTypeFilter, setCommissionTypeFilter] = useState<"all" | "client" | "vendor">("all");
 
   // Date Range Filter (الإطار الزمني)
   const [dateRange, setDateRange] = useState<DateRangeValue | null>(null);
@@ -116,6 +145,9 @@ export default function AdminWalletPage() {
         setTransactions(data.transactions || []);
         setTotalCredit(Number(data.stats?.totalCredit || 0));
         setTotalDebit(Number(data.stats?.totalDebit || 0));
+        if (data.adminWallet) {
+          setAdminWallet(data.adminWallet);
+        }
       }
     } catch (err) {
       console.error("Failed to load real wallet data:", err);
@@ -236,12 +268,57 @@ export default function AdminWalletPage() {
     return matchSearch;
   });
 
+  // Filter dedicated Admin Platform Commission Ledger
+  const filteredAdminTransactions = (adminWallet.transactions || []).filter((t: any) => {
+    const q = search.toLowerCase();
+    const party = (t.party_name || "").toLowerCase();
+    const comp = (t.party_company || "").toLowerCase();
+    const ref = (t.reference || "").toLowerCase();
+    const order = (t.order_id || "").toLowerCase();
+    const inv = (t.invoice_number || "").toLowerCase();
+    const desc = (t.description || "").toLowerCase();
+    const matchSearch = !q || party.includes(q) || comp.includes(q) || ref.includes(q) || order.includes(q) || inv.includes(q) || desc.includes(q);
+
+    const matchType = commissionTypeFilter === "all" || t.source === commissionTypeFilter;
+
+    if (dateRange && (dateRange.startDate || dateRange.endDate)) {
+      const txDate = new Date(t.created_at).getTime();
+      if (dateRange.startDate) {
+        const s = new Date(dateRange.startDate).setHours(0, 0, 0, 0);
+        if (txDate < s) return false;
+      }
+      if (dateRange.endDate) {
+        const e = new Date(dateRange.endDate).setHours(23, 59, 59, 999);
+        if (txDate > e) return false;
+      }
+    }
+
+    return matchSearch && matchType;
+  });
+
   const totalBalance = users.reduce((s, u) => s + u.balance, 0);
 
   const handleExportExcel = async () => {
     setIsExporting(true);
     try {
-      if (viewMode === "ledger") {
+      if (viewMode === "admin_wallet") {
+        if (filteredAdminTransactions.length === 0) return;
+        const rows: AdminPlatformWalletExportRow[] = filteredAdminTransactions.map((tx: any) => ({
+          reference: tx.reference || `#${(tx.id || "").slice(0, 8)}`,
+          orderId: tx.order_id || "—",
+          invoiceNumber: tx.invoice_number || "—",
+          source: tx.source === "client" ? "عميل" : "مورد",
+          feeType: tx.source === "client" ? "رسوم منصة من العميل" : "عمولة منصة من المورد",
+          partyName: tx.party_name || "—",
+          partyCompany: tx.party_company || undefined,
+          feePercent: `${tx.fee_percent || 0}%`,
+          amount: Number(tx.amount || 0),
+          balanceAfter: Number(tx.balance_after || 0),
+          description: tx.description || "—",
+          createdAt: formatDate(tx.created_at),
+        }));
+        await exportAdminPlatformWalletToExcel(rows, "سجل_عمولات_محفظة_المنصة");
+      } else if (viewMode === "ledger") {
         if (filteredTransactions.length === 0) return;
         const rows: AdminWalletLedgerExportRow[] = filteredTransactions.map((tx) => ({
           reference: tx.reference || `#${tx.id.slice(0, 8)}`,
@@ -308,50 +385,114 @@ export default function AdminWalletPage() {
       </div>
 
       {/* ── 2. Summary Financial Cards ── */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        {/* Total Liquidity */}
-        <div className="rounded-3xl p-5 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white shadow-md flex items-center justify-between">
-          <div>
-            <p className="text-xs text-slate-400 font-bold">إجمالي السيولة والأرصدة</p>
-            <p className="text-3xl font-black font-mono mt-1 text-white">{formatAmount(totalBalance)}</p>
-            <p className="text-xs text-slate-400 mt-1">ريال سعودي</p>
+      {viewMode === "admin_wallet" ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {/* Admin Total Balance Card */}
+          <div className="rounded-3xl p-5 bg-gradient-to-br from-emerald-950 via-slate-900 to-emerald-900 text-white shadow-md flex items-center justify-between border border-emerald-500/30">
+            <div>
+              <p className="text-xs text-emerald-400 font-bold">رصيد محفظة المنصة (العمولات)</p>
+              <p className="text-3xl font-black font-mono mt-1 text-white">{formatAmount(adminWallet.balance)}</p>
+              <p className="text-xs text-emerald-300/80 mt-1">ريال سعودي (صافي الأرباح المحصّلة)</p>
+            </div>
+            <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center text-emerald-400">
+              <Landmark className="w-6 h-6" />
+            </div>
           </div>
-          <div className="w-12 h-12 rounded-2xl bg-white/10 flex items-center justify-center text-emerald-400">
-            <Wallet className="w-6 h-6" />
-          </div>
-        </div>
 
-        {/* Total Credits */}
-        <div className="rounded-3xl p-5 bg-emerald-50/70 border border-emerald-200 shadow-xs flex items-center justify-between">
-          <div>
-            <p className="text-xs font-bold text-emerald-700">إجمالي الإيداعات (+)</p>
-            <p className="text-3xl font-black font-mono mt-1 text-slate-900">{formatAmount(totalCredit)}</p>
-            <p className="text-xs text-emerald-600 mt-1">ريال سعودي</p>
+          {/* Client Platform Fees Card */}
+          <div className="rounded-3xl p-5 bg-blue-50/80 border border-blue-200 shadow-xs flex items-center justify-between">
+            <div>
+              <p className="text-xs font-bold text-blue-700">عمولات العملاء المحصّلة (+)</p>
+              <p className="text-3xl font-black font-mono mt-1 text-slate-900">{formatAmount(adminWallet.totalClientFees)}</p>
+              <p className="text-xs text-blue-600 mt-1">رسوم الخدمة من طلبات الشراء</p>
+            </div>
+            <div className="w-12 h-12 rounded-2xl bg-blue-100 flex items-center justify-center text-blue-700">
+              <Users className="w-6 h-6" />
+            </div>
           </div>
-          <div className="w-12 h-12 rounded-2xl bg-emerald-100 flex items-center justify-center text-emerald-700">
-            <TrendingUp className="w-6 h-6" />
-          </div>
-        </div>
 
-        {/* Total Debits */}
-        <div className="rounded-3xl p-5 bg-red-50/70 border border-red-200 shadow-xs flex items-center justify-between">
-          <div>
-            <p className="text-xs font-bold text-red-700">إجمالي السحوبات (-)</p>
-            <p className="text-3xl font-black font-mono mt-1 text-slate-900">{formatAmount(totalDebit)}</p>
-            <p className="text-xs text-red-600 mt-1">ريال سعودي</p>
+          {/* Vendor Platform Fees Card */}
+          <div className="rounded-3xl p-5 bg-emerald-50/80 border border-emerald-200 shadow-xs flex items-center justify-between">
+            <div>
+              <p className="text-xs font-bold text-emerald-700">عمولات الموردين المحصّلة (+)</p>
+              <p className="text-3xl font-black font-mono mt-1 text-slate-900">{formatAmount(adminWallet.totalVendorFees)}</p>
+              <p className="text-xs text-emerald-600 mt-1">نسبة المنصة المقتطعة من المبيعات</p>
+            </div>
+            <div className="w-12 h-12 rounded-2xl bg-emerald-100 flex items-center justify-center text-emerald-700">
+              <Store className="w-6 h-6" />
+            </div>
           </div>
-          <div className="w-12 h-12 rounded-2xl bg-red-100 flex items-center justify-center text-red-700">
-            <TrendingDown className="w-6 h-6" />
+
+          {/* Total Transactions Card */}
+          <div className="rounded-3xl p-5 bg-slate-50/80 border border-slate-200 shadow-xs flex items-center justify-between">
+            <div>
+              <p className="text-xs font-bold text-slate-700">إجمالي عمليات العمولات</p>
+              <p className="text-3xl font-black font-mono mt-1 text-slate-900">{adminWallet.totalTransactions || adminWallet.transactions?.length || 0}</p>
+              <p className="text-xs text-slate-500 mt-1">حركة عمولة مسجلة بالنظام</p>
+            </div>
+            <div className="w-12 h-12 rounded-2xl bg-slate-200 flex items-center justify-center text-slate-700">
+              <Receipt className="w-6 h-6" />
+            </div>
           </div>
         </div>
-      </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          {/* Total Liquidity */}
+          <div className="rounded-3xl p-5 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white shadow-md flex items-center justify-between">
+            <div>
+              <p className="text-xs text-slate-400 font-bold">إجمالي السيولة والأرصدة</p>
+              <p className="text-3xl font-black font-mono mt-1 text-white">{formatAmount(totalBalance)}</p>
+              <p className="text-xs text-slate-400 mt-1">ريال سعودي</p>
+            </div>
+            <div className="w-12 h-12 rounded-2xl bg-white/10 flex items-center justify-center text-emerald-400">
+              <Wallet className="w-6 h-6" />
+            </div>
+          </div>
+
+          {/* Total Credits */}
+          <div className="rounded-3xl p-5 bg-emerald-50/70 border border-emerald-200 shadow-xs flex items-center justify-between">
+            <div>
+              <p className="text-xs font-bold text-emerald-700">إجمالي الإيداعات (+)</p>
+              <p className="text-3xl font-black font-mono mt-1 text-slate-900">{formatAmount(totalCredit)}</p>
+              <p className="text-xs text-emerald-600 mt-1">ريال سعودي</p>
+            </div>
+            <div className="w-12 h-12 rounded-2xl bg-emerald-100 flex items-center justify-center text-emerald-700">
+              <TrendingUp className="w-6 h-6" />
+            </div>
+          </div>
+
+          {/* Total Debits */}
+          <div className="rounded-3xl p-5 bg-red-50/70 border border-red-200 shadow-xs flex items-center justify-between">
+            <div>
+              <p className="text-xs font-bold text-red-700">إجمالي السحوبات (-)</p>
+              <p className="text-3xl font-black font-mono mt-1 text-slate-900">{formatAmount(totalDebit)}</p>
+              <p className="text-xs text-red-600 mt-1">ريال سعودي</p>
+            </div>
+            <div className="w-12 h-12 rounded-2xl bg-red-100 flex items-center justify-center text-red-700">
+              <TrendingDown className="w-6 h-6" />
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── 3. Mode Tabs & Filters & Column Customizer ── */}
       <div className="bg-white rounded-3xl border border-slate-200 p-4 shadow-xs space-y-3">
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
           
           {/* Mode Switcher */}
-          <div className="flex gap-1.5 bg-slate-100 rounded-2xl p-1.5 shrink-0 text-xs font-black">
+          <div className="flex gap-1.5 bg-slate-100 rounded-2xl p-1.5 shrink-0 text-xs font-black flex-wrap sm:flex-nowrap">
+            <button
+              onClick={() => setViewMode("admin_wallet")}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl transition-all cursor-pointer ${
+                viewMode === "admin_wallet" ? "bg-white text-emerald-800 shadow-xs font-black" : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              <Coins className="w-4 h-4 text-emerald-600" />
+              <span>محفظة المنصة (عمولات الأدمن)</span>
+              <span className="bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full text-[10px]">
+                {adminWallet.totalTransactions || adminWallet.transactions?.length || 0}
+              </span>
+            </button>
             <button
               onClick={() => setViewMode("users")}
               className={`px-4 py-2 rounded-xl transition-all cursor-pointer ${
@@ -376,14 +517,53 @@ export default function AdminWalletPage() {
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="ابحث باسم المستخدم، الرقم المرجعي، البيان، أو رقم الفاتورة..."
+              placeholder={
+                viewMode === "admin_wallet"
+                  ? "ابحث برقم الطلب، رقم الفاتورة، اسم العميل، اسم المورد، أو المرجع..."
+                  : "ابحث باسم المستخدم، الرقم المرجعي، البيان، أو رقم الفاتورة..."
+              }
               className="w-full h-10 pr-10 pl-4 rounded-xl border border-slate-200 text-xs font-bold text-slate-800 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
             />
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
+            {/* Commission Source Filter for Admin Wallet */}
+            {viewMode === "admin_wallet" && (
+              <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl text-xs font-bold">
+                <button
+                  type="button"
+                  onClick={() => setCommissionTypeFilter("all")}
+                  className={`px-2.5 py-1.5 rounded-lg transition-colors cursor-pointer ${
+                    commissionTypeFilter === "all" ? "bg-white text-slate-900 shadow-xs" : "text-slate-500 hover:text-slate-800"
+                  }`}
+                >
+                  الكل
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCommissionTypeFilter("client")}
+                  className={`px-2.5 py-1.5 rounded-lg transition-colors cursor-pointer flex items-center gap-1 ${
+                    commissionTypeFilter === "client" ? "bg-white text-blue-700 shadow-xs" : "text-slate-500 hover:text-slate-800"
+                  }`}
+                >
+                  <Users className="w-3 h-3 text-blue-600" />
+                  <span>عمولات العملاء</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCommissionTypeFilter("vendor")}
+                  className={`px-2.5 py-1.5 rounded-lg transition-colors cursor-pointer flex items-center gap-1 ${
+                    commissionTypeFilter === "vendor" ? "bg-white text-emerald-700 shadow-xs" : "text-slate-500 hover:text-slate-800"
+                  }`}
+                >
+                  <Store className="w-3 h-3 text-emerald-600" />
+                  <span>عمولات الموردين</span>
+                </button>
+              </div>
+            )}
+
             {/* Timeframe Filter (الإطار الزمني) */}
-            {viewMode === "ledger" && (
+            {(viewMode === "admin_wallet" || viewMode === "ledger") && (
               <DateRangeFilter
                 value={dateRange}
                 onChange={(val) => setDateRange(val)}
@@ -432,7 +612,124 @@ export default function AdminWalletPage() {
         </div>
       </div>
 
-      {/* ── 4. VIEW 1: Users Balances Table ── */}
+      {/* ── 4. VIEW 0: Admin Platform Wallet Commission Ledger ── */}
+      {viewMode === "admin_wallet" && (
+        <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-xs">
+          <div className="overflow-x-auto">
+            <table className="w-full text-right border-collapse">
+              <thead>
+                <tr className="bg-slate-50/90 border-b border-slate-200 text-slate-700 text-[11px] font-black uppercase tracking-wider">
+                  <th className="py-4 px-4">رقم المرجع</th>
+                  <th className="py-4 px-4">رقم الطلب</th>
+                  <th className="py-4 px-4">رقم الفاتورة</th>
+                  <th className="py-4 px-4 text-center">مصدر العمولة</th>
+                  <th className="py-4 px-4">الطرف المعني / المنشأة</th>
+                  <th className="py-4 px-4 text-center">النسبة المطبقة</th>
+                  <th className="py-4 px-4 text-center">مبلغ العمولة المحصّل</th>
+                  <th className="py-4 px-4 text-center">رصيد المحفظة التراكمي</th>
+                  <th className="py-4 px-4">البيان والتفاصيل</th>
+                  <th className="py-4 px-4 text-center">تاريخ العملية</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-xs">
+                {filteredAdminTransactions.length === 0 ? (
+                  <tr>
+                    <td colSpan={10} className="py-16 text-center text-slate-400 font-bold">
+                      لا توجد عمولات مطابقة للفترة أو البحث المحدد
+                    </td>
+                  </tr>
+                ) : (
+                  filteredAdminTransactions.map((tx: any) => {
+                    const isClient = tx.source === "client";
+                    return (
+                      <tr key={tx.id} className="hover:bg-slate-50/70 transition-colors">
+                        {/* Reference */}
+                        <td className="py-4 px-4 font-mono font-bold text-slate-800">
+                          <span className="inline-flex items-center gap-1.5">
+                            <FileText className="w-3.5 h-3.5 text-slate-400" />
+                            <span>{tx.reference || `#${(tx.id || "").slice(0, 8)}`}</span>
+                          </span>
+                        </td>
+
+                        {/* Order ID */}
+                        <td className="py-4 px-4 font-mono font-bold text-blue-700">
+                          {tx.order_id && tx.order_id !== "—" ? (
+                            <span className="bg-blue-50 text-blue-700 px-2.5 py-0.5 rounded-lg border border-blue-200">
+                              {tx.order_id}
+                            </span>
+                          ) : (
+                            <span className="text-slate-400">—</span>
+                          )}
+                        </td>
+
+                        {/* Invoice Number */}
+                        <td className="py-4 px-4 font-mono text-slate-700">
+                          {tx.invoice_number && tx.invoice_number !== "—" ? (
+                            <span className="bg-slate-100 text-slate-700 px-2 py-0.5 rounded font-bold border border-slate-200">
+                              {tx.invoice_number}
+                            </span>
+                          ) : (
+                            <span className="text-slate-400">—</span>
+                          )}
+                        </td>
+
+                        {/* Commission Source */}
+                        <td className="py-4 px-4 text-center">
+                          <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-black border ${
+                            isClient
+                              ? "bg-blue-50 text-blue-700 border-blue-200"
+                              : "bg-emerald-50 text-emerald-700 border-emerald-200"
+                          }`}>
+                            {isClient ? <Users className="w-3 h-3 text-blue-600" /> : <Store className="w-3 h-3 text-emerald-600" />}
+                            <span>{isClient ? `رسوم عميل (${tx.fee_percent}%)` : `عمولة مورد (${tx.fee_percent}%)`}</span>
+                          </span>
+                        </td>
+
+                        {/* Party & Company */}
+                        <td className="py-4 px-4">
+                          <p className="font-bold text-slate-900">{tx.party_name || "—"}</p>
+                          {tx.party_company && tx.party_company !== tx.party_name && (
+                            <p className="text-[10px] text-slate-400">{tx.party_company}</p>
+                          )}
+                        </td>
+
+                        {/* Applied Fee % */}
+                        <td className="py-4 px-4 text-center font-mono font-bold text-slate-700">
+                          <span className="bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
+                            {tx.fee_percent}%
+                          </span>
+                        </td>
+
+                        {/* Commission Amount */}
+                        <td className="py-4 px-4 text-center font-mono font-black text-sm text-emerald-700">
+                          +{formatAmount(tx.amount)} ر.س
+                        </td>
+
+                        {/* Balance After */}
+                        <td className="py-4 px-4 text-center font-mono font-bold text-slate-900 bg-slate-50/50">
+                          {formatAmount(tx.balance_after)} ر.س
+                        </td>
+
+                        {/* Description */}
+                        <td className="py-4 px-4 text-slate-700 font-medium max-w-64 truncate" title={tx.description}>
+                          {tx.description || "—"}
+                        </td>
+
+                        {/* Date */}
+                        <td className="py-4 px-4 text-center text-slate-400 font-medium text-[11px]">
+                          {formatDate(tx.created_at)}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ── 5. VIEW 1: Users Balances Table ── */}
       {viewMode === "users" && (
         <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-xs">
           <div className="overflow-x-auto">

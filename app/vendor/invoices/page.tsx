@@ -38,7 +38,7 @@ import {
 } from "lucide-react";
 import { DateRangeFilter, DateRangeValue } from "@/components/date-range-filter";
 import { InvoicePDFExport } from "@/components/invoice-pdf-export";
-import { normalizeInvoiceNumber } from "@/lib/invoice-canonical";
+import { normalizeInvoiceNumber, extractCleanOrderNumber } from "@/lib/invoice-canonical";
 
 interface VendorInvoiceItem {
   id: string;
@@ -56,6 +56,10 @@ interface VendorInvoiceItem {
   vin?: string;
   parts_summary: string;
   parts_items?: Array<{ name: string; qty: number; partNumber?: string; unit_price?: number; line_total?: number }>;
+  vat_percent?: number;
+  platform_commission_percent?: number;
+  platform_commission?: number;
+  net_payout?: number;
   invoice_items: Array<{
     id: string;
     part_name: string;
@@ -77,6 +81,8 @@ const INVOICE_COLUMNS = [
   { id: "order_id", label: "رقم الطلب" },
   { id: "vehicle", label: "بيانات المركبة" },
   { id: "total", label: "الإجمالي شامل الضريبة" },
+  { id: "commission", label: "عمولة المنصة" },
+  { id: "net_payout", label: "صافي المستحق" },
   { id: "date", label: "التاريخ" },
   { id: "details", label: "تفاصيل الطلب" },
   { id: "status", label: "الحالة" },
@@ -113,11 +119,20 @@ export default function VendorInvoicesPage() {
     startDate: null,
     endDate: null,
   });
+  const [platformSettings, setPlatformSettings] = useState({
+    vat_percent: 15,
+    vendor_platform_fee_percent: 15,
+    platform_commission_percent: 15,
+    vat_number: "310987654300003",
+    cr_number: "1010789456",
+  });
   const [visibleColumns, setVisibleColumns] = useState<Record<string, boolean>>({
     invoice_number: true,
     order_id: true,
     vehicle: true,
     total: true,
+    commission: true,
+    net_payout: true,
     date: true,
     details: true,
     status: true,
@@ -127,6 +142,32 @@ export default function VendorInvoicesPage() {
   const loadInvoices = useCallback(async () => {
     setLoading(true);
     try {
+      let dynamicVendorFee = 15;
+      let dynamicVatPercent = 15;
+
+      // 0. Fetch platform dynamic policies
+      try {
+        const sRes = await fetch("/api/v1/settings", { cache: "no-store" });
+        if (sRes.ok) {
+          const sData = await sRes.json();
+          if (sData.success && sData.settings) {
+            dynamicVendorFee = Number(
+              sData.settings.vendor_platform_fee_percent ??
+              sData.settings.platform_commission_percent ??
+              15
+            );
+            dynamicVatPercent = Number(sData.settings.vat_percent ?? 15);
+            setPlatformSettings({
+              vat_percent: dynamicVatPercent,
+              vendor_platform_fee_percent: dynamicVendorFee,
+              platform_commission_percent: dynamicVendorFee,
+              vat_number: sData.settings.vat_number || "310987654300003",
+              cr_number: sData.settings.cr_number || "1010789456",
+            });
+          }
+        }
+      } catch (e) {}
+
       const {
         data: { user },
       } = await supabase.auth.getUser();
@@ -141,59 +182,87 @@ export default function VendorInvoicesPage() {
         .maybeSingle();
 
       const combinedOrders: any[] = [];
+      const seenOrderKeys = new Set<string>();
       const seenIds = new Set<string>();
 
-      // 2. Fetch authoritative live orders from server API first
+      const registerOrder = (item: any): boolean => {
+        if (!item) return false;
+        const ordId = item.order_id || item.deal_order_id || item.id;
+        const cleanKey = extractCleanOrderNumber(ordId);
+        const rawId = String(item.id || "");
+        const rawOrdId = String(item.order_id || "");
+
+        if (cleanKey && seenOrderKeys.has(cleanKey)) return false;
+        if (rawId && seenIds.has(rawId)) return false;
+        if (rawOrdId && seenIds.has(rawOrdId)) return false;
+
+        if (cleanKey) seenOrderKeys.add(cleanKey);
+        if (rawId) seenIds.add(rawId);
+        if (rawOrdId) seenIds.add(rawOrdId);
+
+        combinedOrders.push(item);
+        return true;
+      };
+
+      // 2. Fetch authoritative tenant-isolated invoices from server API
       try {
-        const res = await fetch("/api/v1/orders", { cache: "no-store" });
+        const res = await fetch(`/api/v1/invoices?role=vendor&vendor_id=${encodeURIComponent(vendorId)}`, { cache: "no-store" });
         if (res.ok) {
           const data = await res.json();
-          if (data.success && Array.isArray(data.orders)) {
-            data.orders.forEach((o: any) => {
-              if (o && o.id && !seenIds.has(o.id)) {
-                seenIds.add(o.id);
-                combinedOrders.push(o);
-              }
+          if (data.system_settings) {
+            if (data.system_settings.vendor_platform_fee_percent !== undefined) {
+              dynamicVendorFee = Number(data.system_settings.vendor_platform_fee_percent);
+            }
+            setPlatformSettings((prev) => ({
+              ...prev,
+              ...data.system_settings,
+              vendor_platform_fee_percent: dynamicVendorFee,
+              platform_commission_percent: dynamicVendorFee,
+            }));
+          }
+          if (data.success && Array.isArray(data.invoices)) {
+            data.invoices.forEach((o: any) => {
+              registerOrder(o);
             });
           }
         }
       } catch (e) {}
 
-      // 3. Try fetching from Supabase / localStorage orders
+      // 3. Optional fallback: Try fetching from Supabase orders table (only unindexed orders)
       try {
         const { data: ordersData } = await supabase
           .from("orders")
           .select(`*`)
+          .eq("vendor_id", vendorId)
           .order("created_at", { ascending: false });
 
         if (ordersData && Array.isArray(ordersData)) {
           ordersData.forEach((o: any) => {
-            if (o && o.id && !seenIds.has(o.id)) {
-              seenIds.add(o.id);
-              combinedOrders.push(o);
-            }
+            registerOrder(o);
           });
         }
       } catch (e) {}
 
-      // 4. Try fetching from invoices table
+      // 4. Optional fallback: Try fetching from invoices table
       try {
-        const { data: invoicesData } = await supabase.from("invoices").select("*");
+        const { data: invoicesData } = await supabase
+          .from("invoices")
+          .select("*")
+          .eq("vendor_id", vendorId);
+
         if (invoicesData && Array.isArray(invoicesData)) {
           invoicesData.forEach((inv: any) => {
-            const cleanId = String(inv.id).replace(/^INV-/, "ORD-");
-            if (inv && !seenIds.has(inv.id) && !seenIds.has(cleanId)) {
-              seenIds.add(inv.id);
-              combinedOrders.push(inv);
-            }
+            registerOrder(inv);
           });
         }
       } catch (e) {}
 
-      // Filter for this vendor (allow all if vendor-demo-id)
+      // Filter strictly for this vendor
       const filteredRaw = combinedOrders.filter((ord: any) => {
         if (!ord) return false;
-        if (!ord.vendor_id || ord.vendor_id === "vendor-demo-id" || vendorId === "vendor-demo-id") return true;
+        if (vendorId === "vendor-demo-id") {
+          return ord.vendor_id === "vendor-demo-id" || ord.vendor_id === "v-supplier-1" || !ord.vendor_id;
+        }
         return ord.vendor_id === vendorId || ord.deals?.some((d: any) => d.vendor_id === vendorId);
       });
 
@@ -206,7 +275,7 @@ export default function VendorInvoicesPage() {
 
       // Map into VendorInvoiceItem
       const mapped: VendorInvoiceItem[] = filteredRaw.map((ord: any, idx: number) => {
-        const rfq = ord.rfqs || ord.rfq;
+        const rfq = ord.rfqs || ord.rfq || ord.deal?.orders?.rfqs || ord.deal?.orders?.rfq || ord.deals?.orders?.rfqs;
         const client = ord.client || ord.profiles;
         const vendor = ord.vendor || vendorProfile || {
           company_name: "مؤسسة قطع الغيار المعتمدة",
@@ -216,12 +285,57 @@ export default function VendorInvoicesPage() {
           commercial_register: "1010887766",
           national_address: "الرياض - صناعية الشفاء - طريق خريص",
         };
-        const total = Number(ord.total_amount || ord.total_price || 0);
-        const tax = total * (15 / 115);
-        const subtotal = total - tax;
+        const vatPercent = Number(ord.vat_percent ?? platformSettings.vat_percent ?? 15);
+        const vatRate = vatPercent / 100;
+
+        // Vendor invoice represents parts + parts VAT (e.g. 100 + 15 = 115 SAR, excluding third-party delivery/client fees)
+        let subtotal = 0;
+        if (ord.parts_subtotal != null && Number(ord.parts_subtotal) > 0) {
+          subtotal = Number(ord.parts_subtotal);
+        } else if (Array.isArray(ord.items) && ord.items.length > 0) {
+          subtotal = ord.items.reduce((s: number, it: any) => s + (Number(it.line_total || ((it.unit_price || 0) * (it.quantity || 1))) || 0), 0);
+        } else if (ord.subtotal != null && Number(ord.subtotal) > 0 && Number(ord.subtotal) <= (Number(ord.total_price || ord.total_amount || 0) * 0.9)) {
+          subtotal = Number(ord.subtotal);
+        } else {
+          const rawTotal = Number(ord.total_amount || ord.total_price || 0);
+          const delFee = Number(ord.delivery_fee || ord.delivery_cost || 0);
+          const netWithoutDel = Math.max(0, rawTotal - delFee);
+          const clientFeeRate = Number(ord.client_platform_fee_percent ?? platformSettings.client_platform_fee_percent ?? 5) / 100;
+          const factor = 1 + clientFeeRate + vatRate;
+          subtotal = Math.round((netWithoutDel / factor) * 100) / 100;
+          if (subtotal <= 0) subtotal = Math.round((rawTotal / (1 + vatRate)) * 100) / 100;
+        }
+
+        const expectedPartsVat = Number((subtotal * vatRate).toFixed(2));
+        const tax = ord.parts_vat != null && Number(ord.parts_vat) <= Number((expectedPartsVat * 1.05).toFixed(2))
+          ? Number(ord.parts_vat)
+          : expectedPartsVat;
+
+        // Authoritative Vendor Tax Invoice Total (115.00 SAR for 100 SAR parts)
+        const vendorInvoiceTotal = Number((subtotal + tax).toFixed(2));
+
+        // Authoritative Vendor Platform Fee / Commission (dynamically synchronized with Admin Settings)
+        const commissionPercent = Number(
+          ord.vendor_platform_fee_percent ??
+          ord.settlement_summary?.vendorFeePercent ??
+          dynamicVendorFee ??
+          platformSettings.vendor_platform_fee_percent ??
+          6
+        );
+        const platformCommission = Number(((subtotal * (commissionPercent / 100))).toFixed(2));
+
+        // Net Vendor Payout (e.g. 115 - 15 = 100 SAR)
+        const netPayout = Number((vendorInvoiceTotal - platformCommission).toFixed(2));
+
         const rawOrderId = ord.order_id || ord.deal_order_id || ord.id || `ORD-${idx + 1}`;
         const cleanOrderId = String(rawOrderId).replace(/^ORD-/, "").slice(0, 8).toUpperCase();
         const invNum = normalizeInvoiceNumber(ord.invoice_number, rawOrderId);
+
+        const carMake = ord.vehicle_make && ord.vehicle_make !== "غير محدد" ? ord.vehicle_make : (ord.car_make || rfq?.car_make || ord.deal?.orders?.rfqs?.car_make || "تويوتا");
+        const carModel = ord.vehicle_model || ord.car_model || rfq?.car_model || ord.deal?.orders?.rfqs?.car_model || "كامري";
+        const carYear = ord.vehicle_year && ord.vehicle_year !== "—" ? ord.vehicle_year : (ord.car_year || rfq?.car_year || ord.deal?.orders?.rfqs?.car_year || "2023");
+        const plateNum = ord.plate_number && ord.plate_number !== "—" ? ord.plate_number : (rfq?.plate_number || ord.deal?.orders?.rfqs?.plate_number || "—");
+        const vinNum = ord.vin && ord.vin !== "—" ? ord.vin : (rfq?.vin || ord.deal?.orders?.rfqs?.vin || "—");
 
         let partsText = "قطع غيار معتمدة";
         let partsItemsList: Array<{ name: string; qty: number; partNumber?: string; unit_price?: number; line_total?: number }> = [];
@@ -252,13 +366,11 @@ export default function VendorInvoicesPage() {
           } catch (e) {}
         }
 
-        if ((partsText === "قطع غيار معتمدة" || !partsText) && (rfq?.car_make || ord.car_make)) {
-          const make = rfq?.car_make || ord.car_make;
-          const model = rfq?.car_model || ord.car_model || "";
-          partsText = `قطع غيار صيانة معتمدة لـ ${make} ${model}`.trim();
+        if ((partsText === "قطع غيار معتمدة" || !partsText) && (carMake || carModel)) {
+          partsText = `قطع غيار صيانة معتمدة لـ ${carMake} ${carModel}`.trim();
         }
 
-        const clientName = client?.company_name || client?.full_name || "شركة المشتريات الوطنية (عميل المشتريات)";
+        const clientName = client?.company_name || client?.full_name || ord.client_name || "شركة المشتريات الوطنية (عميل المشتريات)";
 
         const invoiceItems = (ord.invoice_items && ord.invoice_items.length > 0)
           ? ord.invoice_items
@@ -288,15 +400,19 @@ export default function VendorInvoicesPage() {
           invoice_number: invNum,
           order_id: cleanOrderId,
           created_at: ord.issued_at || ord.created_at || new Date(Date.now() - (idx * 24 + 12) * 3600 * 1000).toISOString(),
-          total_amount: total,
+          total_amount: vendorInvoiceTotal,
           tax_amount: tax,
           subtotal: subtotal,
+          vat_percent: vatPercent,
+          platform_commission_percent: commissionPercent,
+          platform_commission: platformCommission,
+          net_payout: netPayout,
           status: ord.status === "cancelled" ? "cancelled" : "paid",
-          vehicle_make: rfq?.car_make || ord.car_make || "تويوتا",
-          vehicle_model: rfq?.car_model || ord.car_model || "كامري",
-          vehicle_year: rfq?.car_year || ord.car_year || "2023",
-          plate_number: rfq?.plate_number || ord.plate_number || "—",
-          vin: rfq?.vin || ord.vin || "—",
+          vehicle_make: carMake,
+          vehicle_model: carModel,
+          vehicle_year: carYear,
+          plate_number: plateNum,
+          vin: vinNum,
           parts_summary: partsText,
           parts_items: partsItemsList,
           invoice_items: invoiceItems,
@@ -316,7 +432,19 @@ export default function VendorInvoicesPage() {
         };
       });
 
-      setInvoices(mapped);
+      // Final strict deduplication by clean order key and invoice number
+      const finalInvoices: VendorInvoiceItem[] = [];
+      const seenFinalKeys = new Set<string>();
+      for (const inv of mapped) {
+        const cleanKey = extractCleanOrderNumber(inv.order_id || inv.id);
+        const invNum = inv.invoice_number;
+        const dedupKey = cleanKey || invNum || inv.id;
+        if (dedupKey && seenFinalKeys.has(dedupKey)) continue;
+        if (dedupKey) seenFinalKeys.add(dedupKey);
+        finalInvoices.push(inv);
+      }
+
+      setInvoices(finalInvoices);
     } catch (err) {
       console.error("Error loading vendor invoices:", err);
     } finally {
@@ -365,6 +493,14 @@ export default function VendorInvoicesPage() {
     return filteredInvoices.reduce((acc, it) => acc + (it.tax_amount || 0), 0);
   }, [filteredInvoices]);
 
+  const totalCommissionAmount = useMemo(() => {
+    return filteredInvoices.reduce((acc, it) => acc + (it.platform_commission || 0), 0);
+  }, [filteredInvoices]);
+
+  const totalNetPayoutAmount = useMemo(() => {
+    return filteredInvoices.reduce((acc, it) => acc + (it.net_payout || 0), 0);
+  }, [filteredInvoices]);
+
   // Export to Excel / CSV Handler
   const handleExportExcel = () => {
     try {
@@ -379,8 +515,10 @@ export default function VendorInvoicesPage() {
         "رقم الهيكل",
         "تفاصيل البنود",
         "المبلغ قبل الضريبة (ر.س)",
-        "ضريبة القيمة المضافة (15%)",
+        `ضريبة القيمة المضافة (${platformSettings.vat_percent}%)`,
         "الإجمالي شامل الضريبة (ر.س)",
+        `عمولة المنصة (${platformSettings.vendor_platform_fee_percent}%)`,
+        "صافي مستحقات المورد (ر.س)",
         "تاريخ الإصدار",
         "الحالة",
       ];
@@ -401,6 +539,8 @@ export default function VendorInvoicesPage() {
             inv.subtotal.toFixed(2),
             inv.tax_amount.toFixed(2),
             inv.total_amount.toFixed(2),
+            (inv.platform_commission || 0).toFixed(2),
+            (inv.net_payout || 0).toFixed(2),
             `"${fmtDate(inv.created_at)}"`,
             `"${inv.status === "paid" ? "معتمدة" : inv.status}"`,
           ].join(",")
@@ -468,34 +608,48 @@ export default function VendorInvoicesPage() {
 
       <div className="w-full space-y-6">
         {/* ── Summary Stats Cards ── */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-2xs flex items-center justify-between">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-2xs flex items-center justify-between">
             <div>
               <p className="text-xs font-bold text-slate-400">إجمالي المبيعات المفوترة</p>
-              <p className="text-xl font-black text-slate-900 font-mono mt-1">{fmt(totalSalesAmount)} ر.س</p>
+              <p className="text-lg sm:text-xl font-black text-slate-900 font-mono mt-1">{fmt(totalSalesAmount)} ر.س</p>
+              <span className="text-[10px] text-slate-400 block mt-0.5">{filteredInvoices.length} فاتورة</span>
             </div>
-            <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-700 flex items-center justify-center font-bold">
+            <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-700 flex items-center justify-center font-bold shrink-0">
               <TrendingUp className="w-5 h-5" />
             </div>
           </div>
 
-          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-2xs flex items-center justify-between">
+          <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-2xs flex items-center justify-between">
             <div>
-              <p className="text-xs font-bold text-slate-400">ضريبة القيمة المضافة (15%)</p>
-              <p className="text-xl font-black text-amber-700 font-mono mt-1">{fmt(totalVatAmount)} ر.س</p>
+              <p className="text-xs font-bold text-slate-400">ضريبة القيمة المضافة ({platformSettings.vat_percent}%)</p>
+              <p className="text-lg sm:text-xl font-black text-amber-700 font-mono mt-1">{fmt(totalVatAmount)} ر.س</p>
+              <span className="text-[10px] text-amber-600 block mt-0.5">معتمدة ZATCA</span>
             </div>
-            <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-700 flex items-center justify-center font-bold">
+            <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-700 flex items-center justify-center font-bold shrink-0">
               <ShieldCheck className="w-5 h-5" />
             </div>
           </div>
 
-          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-2xs flex items-center justify-between">
+          <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-2xs flex items-center justify-between">
             <div>
-              <p className="text-xs font-bold text-slate-400">عدد الفواتير الصادرة</p>
-              <p className="text-xl font-black text-emerald-800 font-mono mt-1">{filteredInvoices.length} فاتورة</p>
+              <p className="text-xs font-bold text-slate-400">عمولة المنصة ({platformSettings.vendor_platform_fee_percent}%)</p>
+              <p className="text-lg sm:text-xl font-black text-indigo-700 font-mono mt-1">{fmt(totalCommissionAmount)} ر.س</p>
+              <span className="text-[10px] text-indigo-600 block mt-0.5">مقتطعة تشغيلياً</span>
             </div>
-            <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-800 flex items-center justify-center font-bold">
-              <FileText className="w-5 h-5" />
+            <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-700 flex items-center justify-center font-bold shrink-0">
+              <Receipt className="w-5 h-5" />
+            </div>
+          </div>
+
+          <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-2xs flex items-center justify-between">
+            <div>
+              <p className="text-xs font-bold text-slate-400">صافي مستحقات المورد</p>
+              <p className="text-lg sm:text-xl font-black text-emerald-700 font-mono mt-1">{fmt(totalNetPayoutAmount)} ر.س</p>
+              <span className="text-[10px] text-emerald-600 block mt-0.5">الصافي المحول لحسابك</span>
+            </div>
+            <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center font-bold shrink-0">
+              <CheckCircle2 className="w-5 h-5" />
             </div>
           </div>
         </div>
@@ -607,6 +761,8 @@ export default function VendorInvoicesPage() {
                     {visibleColumns.order_id && <th className="py-3.5 px-4 font-extrabold">رقم الطلب</th>}
                     {visibleColumns.vehicle && <th className="py-3.5 px-4 font-extrabold">بيانات المركبة واللوحة</th>}
                     {visibleColumns.total && <th className="py-3.5 px-4 font-extrabold text-center">الإجمالي شامل الضريبة</th>}
+                    {visibleColumns.commission && <th className="py-3.5 px-4 font-extrabold text-center">عمولة المنصة ({platformSettings.vendor_platform_fee_percent}%)</th>}
+                    {visibleColumns.net_payout && <th className="py-3.5 px-4 font-extrabold text-center">صافي المستحق</th>}
                     {visibleColumns.date && <th className="py-3.5 px-4 font-extrabold">تاريخ الإصدار</th>}
                     {visibleColumns.details && <th className="py-3.5 px-4 font-extrabold">تفاصيل الطلب</th>}
                     {visibleColumns.status && <th className="py-3.5 px-4 font-extrabold text-center">الحالة</th>}
@@ -667,11 +823,32 @@ export default function VendorInvoicesPage() {
                       {/* Total */}
                       {visibleColumns.total && (
                         <td className="py-4 px-4 text-center">
-                          <span className="font-mono font-black text-emerald-800 text-sm">
+                          <span className="font-mono font-black text-slate-900 text-sm">
                             {fmt(inv.total_amount)} ر.س
                           </span>
                           <span className="block text-[10px] text-slate-400">
-                            (الضريبة: {fmt(inv.tax_amount)} ر.س)
+                            (الضريبة {inv.vat_percent || platformSettings.vat_percent}%: {fmt(inv.tax_amount)} ر.س)
+                          </span>
+                        </td>
+                      )}
+
+                      {/* Platform Commission */}
+                      {visibleColumns.commission && (
+                        <td className="py-4 px-4 text-center">
+                          <span className="font-mono font-bold text-amber-800 text-xs">
+                            {fmt(inv.platform_commission || 0)} ر.س
+                          </span>
+                          <span className="block text-[10px] text-slate-400">
+                            ({inv.platform_commission_percent || platformSettings.vendor_platform_fee_percent}%)
+                          </span>
+                        </td>
+                      )}
+
+                      {/* Net Vendor Payout */}
+                      {visibleColumns.net_payout && (
+                        <td className="py-4 px-4 text-center">
+                          <span className="font-mono font-black text-emerald-800 bg-emerald-50 border border-emerald-200/80 px-2 py-0.5 rounded-lg text-xs">
+                            {fmt(inv.net_payout || 0)} ر.س
                           </span>
                         </td>
                       )}
@@ -724,17 +901,19 @@ export default function VendorInvoicesPage() {
                         <td className="py-4 px-4 text-center">
                           <div className="flex items-center justify-center gap-2">
                             <Button
-                              variant="ghost"
+                              variant="outline"
                               size="sm"
                               onClick={() => setSelectedInvoice(inv)}
-                              className="h-8 px-2.5 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 text-xs font-semibold gap-1"
+                              className="h-8 px-3 rounded-xl border-blue-200 bg-blue-50/70 hover:bg-blue-100 text-blue-800 text-xs font-bold gap-1.5 shadow-2xs transition-all active:scale-95 cursor-pointer"
                               title="معاينة تفاصيل الفاتورة"
                             >
-                              <Eye className="w-3.5 h-3.5" />
-                              <span>تفاصيل</span>
+                              <Eye className="w-3.5 h-3.5 text-blue-600" />
+                              <span>معاينة الفاتورة</span>
                             </Button>
 
                             <InvoicePDFExport
+                              platformSettings={platformSettings}
+                              userRole="vendor"
                               invoice={{
                                 id: inv.id,
                                 invoice_number: inv.invoice_number,
@@ -744,6 +923,10 @@ export default function VendorInvoicesPage() {
                                 subtotal: inv.subtotal,
                                 status: inv.status,
                                 created_at: inv.created_at,
+                                vat_percent: inv.vat_percent,
+                                platform_commission_percent: inv.platform_commission_percent,
+                                platform_commission: inv.platform_commission,
+                                net_payout: inv.net_payout,
                               }}
                               vendor={inv.vendor_profile || {
                                 company_name: "مؤسسة قطع الغيار المعتمدة",
@@ -849,19 +1032,39 @@ export default function VendorInvoicesPage() {
                 </div>
               </div>
 
-              {/* Financial Totals */}
+              {/* Financial Totals with dynamic VAT & Platform commission */}
               <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 space-y-2">
                 <div className="flex justify-between text-gray-600">
                   <span>المجموع الفرعي (قبل الضريبة):</span>
                   <span className="font-mono font-bold">{fmt(selectedInvoice.subtotal)} ر.س</span>
                 </div>
                 <div className="flex justify-between text-gray-600">
-                  <span>ضريبة القيمة المضافة (15%):</span>
+                  <span>ضريبة القيمة المضافة ({selectedInvoice.vat_percent || platformSettings.vat_percent}%):</span>
                   <span className="font-mono font-bold">{fmt(selectedInvoice.tax_amount)} ر.س</span>
                 </div>
-                <div className="flex justify-between text-base font-black text-emerald-800 pt-2 border-t border-gray-200">
-                  <span>الإجمالي شامل الضريبة:</span>
+                <div className="flex justify-between text-base font-black text-slate-900 pt-2 border-t border-gray-200">
+                  <span>إجمالي قيمة الطلب:</span>
                   <span className="font-mono">{fmt(selectedInvoice.total_amount)} ر.س</span>
+                </div>
+                <div className="flex justify-between text-amber-700 font-bold pt-1.5 border-t border-dashed border-gray-200">
+                  <span>عمولة المنصة التشغيلية ({selectedInvoice.platform_commission_percent || platformSettings.vendor_platform_fee_percent}%):</span>
+                  <span className="font-mono">-{fmt(selectedInvoice.platform_commission || 0)} ر.س</span>
+                </div>
+                <div className="flex justify-between text-base font-black text-emerald-800 bg-emerald-50/80 p-2.5 rounded-lg border border-emerald-200">
+                  <span>صافي المستحق للمورد (Net Payout):</span>
+                  <span className="font-mono">{fmt(selectedInvoice.net_payout || 0)} ر.س</span>
+                </div>
+              </div>
+
+              {/* Platform Credentials */}
+              <div className="bg-blue-50/60 p-3 rounded-xl border border-blue-100 text-[11px] text-blue-900 space-y-1">
+                <p className="font-bold flex items-center gap-1.5">
+                  <ShieldCheck className="w-3.5 h-3.5 text-blue-600" />
+                  <span>بيانات منصة RFQ المعتمدة:</span>
+                </p>
+                <div className="grid grid-cols-2 gap-2 text-slate-600 pt-1 font-mono text-[10px]">
+                  <div>السجل التجاري: <span className="font-bold text-slate-800">{platformSettings.cr_number}</span></div>
+                  <div>الرقم الضريبي: <span className="font-bold text-slate-800">{platformSettings.vat_number}</span></div>
                 </div>
               </div>
 
@@ -882,6 +1085,8 @@ export default function VendorInvoicesPage() {
               {/* Action Button */}
               <div className="pt-2">
                 <InvoicePDFExport
+                  platformSettings={platformSettings}
+                  userRole="vendor"
                   invoice={{
                     id: selectedInvoice.id,
                     invoice_number: selectedInvoice.invoice_number,
@@ -891,6 +1096,10 @@ export default function VendorInvoicesPage() {
                     subtotal: selectedInvoice.subtotal,
                     status: selectedInvoice.status,
                     created_at: selectedInvoice.created_at,
+                    vat_percent: selectedInvoice.vat_percent,
+                    platform_commission_percent: selectedInvoice.platform_commission_percent,
+                    platform_commission: selectedInvoice.platform_commission,
+                    net_payout: selectedInvoice.net_payout,
                   }}
                   vendor={selectedInvoice.vendor_profile || {
                     company_name: "مؤسسة قطع الغيار المعتمدة",

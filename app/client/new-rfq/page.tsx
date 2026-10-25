@@ -668,6 +668,26 @@ function NewRFQWizardContent() {
   }, []);
   const [recipientName, setRecipientName] = useState<string>("");
   const [recipientPhone, setRecipientPhone] = useState<string>("");
+
+  // Automatically load authenticated client's contact info if not set
+  useEffect(() => {
+    async function loadClientContact() {
+      try {
+        const res = await fetch("/api/v1/account");
+        if (res.ok) {
+          const json = await res.json();
+          const user = json?.data?.user;
+          if (user) {
+            setRecipientName((prev) => prev || user.company_name || user.full_name || "");
+            setRecipientPhone((prev) => prev || user.phone || "");
+          }
+        }
+      } catch (e) {
+        console.warn("Could not auto-fetch client profile contact:", e);
+      }
+    }
+    loadClientContact();
+  }, []);
   const [locationName, setLocationName] = useState<string>("");
   const [deliveryLat, setDeliveryLat] = useState<number | null>(null);
   const [deliveryLng, setDeliveryLng] = useState<number | null>(null);
@@ -777,6 +797,18 @@ function NewRFQWizardContent() {
   const [cylinders, setCylinders] = useState("");
   const [transmission, setTransmission] = useState("");
   const [fuelType, setFuelType] = useState("");
+
+  // Sync vehicle make & model if passed from Map or external link
+  useEffect(() => {
+    const pMake = searchParams?.get("carMake") || searchParams?.get("make");
+    const pModel = searchParams?.get("carModel") || searchParams?.get("model");
+    if (pMake) {
+      setCarMake(decodeURIComponent(pMake));
+      if (pModel) setCarModel(decodeURIComponent(pModel));
+      setVehicleSource("manual");
+      setHasSelectedVehicle(true);
+    }
+  }, [searchParams]);
 
   // Step 3: Order Details State
   const [rfqType, setRfqType] = useState<"public" | "private" | null>(null);
@@ -2117,7 +2149,7 @@ function NewRFQWizardContent() {
                       <div className="flex items-center justify-between">
                         <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
                           <UserCheck className="w-3.5 h-3.5 text-blue-600" />
-                          <span>اسم المستلم *</span>
+                          <span>اسم العميل / المستلم *</span>
                         </label>
                         <span className="text-[10px] font-bold text-red-500 bg-red-50 px-1.5 py-0.2 rounded">إلزامي *</span>
                       </div>
@@ -2137,12 +2169,12 @@ function NewRFQWizardContent() {
                       />
                     </div>
 
-                    {/* Contact Phone */}
+                    {/* Recipient Phone */}
                     <div className="space-y-1.5">
                       <div className="flex items-center justify-between">
                         <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
-                          <Phone className="w-3.5 h-3.5 text-emerald-600" />
-                          <span>رقم للتواصل *</span>
+                          <Phone className="w-3.5 h-3.5 text-blue-600" />
+                          <span>رقم الهاتف للتواصل *</span>
                         </label>
                         <span className="text-[10px] font-bold text-red-500 bg-red-50 px-1.5 py-0.2 rounded">إلزامي *</span>
                       </div>
@@ -2155,7 +2187,7 @@ function NewRFQWizardContent() {
                           if (error) setError(null);
                         }}
                         placeholder="05XXXXXXXX"
-                        className={`w-full h-10 px-3.5 rounded-xl border bg-white text-xs font-bold font-mono text-slate-900 text-left placeholder:text-slate-400 focus:outline-hidden focus:ring-2 transition-all ${
+                        className={`w-full h-10 px-3.5 rounded-xl border bg-white text-xs font-medium text-slate-900 text-left placeholder:text-slate-400 focus:outline-hidden focus:ring-2 transition-all ${
                           !recipientPhone.trim() && error
                             ? "border-red-400 focus:border-red-500 focus:ring-red-100 bg-red-50/20"
                             : "border-slate-200 focus:border-blue-500 focus:ring-blue-100"
@@ -3669,11 +3701,11 @@ function NewRFQWizardContent() {
 
                     if (currentStep === 1) {
                       if (!recipientName.trim()) {
-                        setError("يرجى إدخال اسم المستلم أولاً قبل الانتقال للخطوة التالية");
+                        setError("يرجى إدخال اسم العميل / المستلم أولاً قبل الانتقال للخطوة التالية");
                         return;
                       }
                       if (!recipientPhone.trim()) {
-                        setError("يرجى إدخال رقم هاتف للتواصل قبل الانتقال للخطوة التالية");
+                        setError("يرجى إدخال رقم الهاتف للتواصل أولاً قبل الانتقال للخطوة التالية");
                         return;
                       }
                       if (!hasSelectedLocation && !selectedBranchId) {

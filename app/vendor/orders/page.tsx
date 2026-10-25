@@ -1,11 +1,10 @@
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
-
+import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { VendorOrdersClient } from "./orders-client";
 import { filterRfqsForVendor, getVendorSpecializationProfile } from "@/lib/brand-specialization";
 import { filterRfqsForVendorCategories } from "@/lib/category-specialization";
 import { getSystemSettings } from "@/lib/system-settings";
+import { getVerifiedAuthContext } from "@/lib/rbac/rbac-guard.server";
 
 export default async function VendorOrdersPage() {
   const supabase = await createClient();
@@ -13,7 +12,11 @@ export default async function VendorOrdersPage() {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const vendorId = user?.id || "vendor-demo-id";
+  const cookieStore = await cookies();
+  const sessionUserId = cookieStore.get("rfq_user_id")?.value;
+  const authContext = await getVerifiedAuthContext().catch(() => null);
+  const vendorId = authContext?.userId || sessionUserId || user?.id || "vendor-demo-id";
+  const isActualDemoVendor = vendorId === "vendor-demo-id" || vendorId === "current-vendor-id";
 
   const [
     { data: openRfqs },
@@ -64,12 +67,78 @@ export default async function VendorOrdersPage() {
   const durationMinutes = settings.rfq_visibility_duration_minutes || 2880;
   const now = Date.now();
 
-  // استخراج معرّفات الطلبات النشطة
-  const activeRfqIds = new Set((orders || []).map((o: any) => o.rfq_id).filter(Boolean));
+  // كافة الطلبات (النشطة والمكتملة) - دمج Supabase مع قاعدة البيانات المحلية لضمان ظهور الطلب فور قبوله
+  let allOrders: any[] = Array.isArray(orders) ? [...orders] : [];
+  try {
+    const fs = require("fs");
+    const path = require("path");
+    const ORDERS_FILE = path.join(process.cwd(), "data", "orders_db.json");
+    let localOrders: any[] = [];
+    if (globalThis.__SHARED_SERVER_ORDERS__ && globalThis.__SHARED_SERVER_ORDERS__.length > 0) {
+      localOrders = globalThis.__SHARED_SERVER_ORDERS__;
+    } else if (fs.existsSync(ORDERS_FILE)) {
+      const fileContent = fs.readFileSync(ORDERS_FILE, "utf-8");
+      localOrders = JSON.parse(fileContent);
+    }
+
+    if (Array.isArray(localOrders) && localOrders.length > 0) {
+      const matchingLocal = localOrders.filter((o: any) => {
+        if (!o) return false;
+        // Strictly isolated: only match orders explicitly assigned to this vendor
+        if (o.vendor_id === vendorId) return true;
+        // Only if the current session is the predefined demo vendor
+        if (isActualDemoVendor && (o.vendor_id === "vendor-demo-id" || o.vendor_id === "current-vendor-id")) {
+          return true;
+        }
+        return false;
+      });
+
+      const existingOrderIds = new Set(allOrders.map((o: any) => o.id));
+      matchingLocal.forEach((lo: any) => {
+        if (!existingOrderIds.has(lo.id)) {
+          allOrders.push(lo);
+          existingOrderIds.add(lo.id);
+        }
+      });
+    }
+  } catch (_) {}
+
+  // استخراج معرّفات طلبات التسعير التي تحولت إلى طلبات شراء نشطة
+  const activeRfqIds = new Set<string>();
+  allOrders.forEach((o: any) => {
+    if (o.rfq_id) {
+      activeRfqIds.add(o.rfq_id);
+      activeRfqIds.add(String(o.rfq_id).replace("RFQ-", ""));
+    }
+    if (o.id) {
+      const cleanNum = String(o.id).replace(/\D+/g, "");
+      if (cleanNum) {
+        activeRfqIds.add(`RFQ-${cleanNum}`);
+        activeRfqIds.add(cleanNum);
+      }
+    }
+  });
+
+  // Fallback to local data/rfqs_db.json if DB query returned 0 open RFQs
+  let allOpenRfqs = openRfqs || [];
+  if (allOpenRfqs.length === 0) {
+    try {
+      const fs = require("fs");
+      const path = require("path");
+      const RFQS_FILE = path.join(process.cwd(), "data", "rfqs_db.json");
+      if (fs.existsSync(RFQS_FILE)) {
+        const fileContent = fs.readFileSync(RFQS_FILE, "utf-8");
+        const parsed = JSON.parse(fileContent);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          allOpenRfqs = parsed.filter((r: any) => r.status === "open" || r.status === "quoted");
+        }
+      }
+    } catch (_) {}
+  }
 
   // دمج وتصفية الـ RFQs الفريدة
   const combinedRawRfqs = [
-    ...(openRfqs || []),
+    ...allOpenRfqs,
     ...((rfqViews || []).map((v: any) => v.rfqs).filter(Boolean)),
   ];
 
@@ -80,12 +149,21 @@ export default async function VendorOrdersPage() {
       if (seenRfqIds.has(r.id)) return false;
       seenRfqIds.add(r.id);
       if (activeRfqIds.has(r.id)) return false;
-      if (r.status === "closed" || r.status === "completed" || r.status === "cancelled") return false;
+      if (
+        r.status === "closed" ||
+        r.status === "completed" ||
+        r.status === "cancelled" ||
+        r.status === "accepted" ||
+        r.status === "ordered"
+      ) return false;
 
-      // In Vendor Orders page, show direct targeted RFQs or RFQs where vendor already quoted
-      const isTargetedToVendor = r.target_vendor_id === vendorId || r.target_vendor_id === "vendor-demo-id" || r.target_vendor_id === "current-vendor-id";
-      const hasVendorQuote = Array.isArray(r.quotes) && r.quotes.some((q: any) => q.vendor_id === vendorId || (user && q.vendor_id === user.id));
-      if (!isTargetedToVendor && !hasVendorQuote) {
+      // In Vendor Orders page, exclude private requests targeted specifically to ANOTHER vendor
+      const isTargetedToOtherVendor =
+        Boolean(r.target_vendor_id) &&
+        r.target_vendor_id !== vendorId &&
+        (isActualDemoVendor ? (r.target_vendor_id !== "vendor-demo-id" && r.target_vendor_id !== "current-vendor-id") : true);
+
+      if (isTargetedToOtherVendor) {
         return false;
       }
 
@@ -98,12 +176,21 @@ export default async function VendorOrdersPage() {
     })
     .map((r: any) => ({
       ...r,
-      quotes: (r.quotes || []).filter((q: any) => q.vendor_id === vendorId || (user && q.vendor_id === user.id)),
+      quotes: (r.quotes || []).filter((q: any) =>
+        q.vendor_id === vendorId ||
+        (isActualDemoVendor && (q.vendor_id === "vendor-demo-id" || q.vendor_id === "current-vendor-id"))
+      ),
     }));
 
   // Separate direct targeted requests from general market requests
-  const directTargeted = rawRfqs.filter((r: any) => r.target_vendor_id === vendorId || r.target_vendor_id === "vendor-demo-id" || r.target_vendor_id === "current-vendor-id");
-  const generalMarket = rawRfqs.filter((r: any) => !r.target_vendor_id || (r.target_vendor_id !== vendorId && r.target_vendor_id !== "vendor-demo-id" && r.target_vendor_id !== "current-vendor-id"));
+  const directTargeted = rawRfqs.filter((r: any) =>
+    r.target_vendor_id === vendorId ||
+    (isActualDemoVendor && (r.target_vendor_id === "vendor-demo-id" || r.target_vendor_id === "current-vendor-id"))
+  );
+  const generalMarket = rawRfqs.filter((r: any) =>
+    !r.target_vendor_id ||
+    (r.target_vendor_id !== vendorId && (isActualDemoVendor ? (r.target_vendor_id !== "vendor-demo-id" && r.target_vendor_id !== "current-vendor-id") : true))
+  );
 
   // Apply specialization filter ONLY to general market requests
   let authorizedGeneral = filterRfqsForVendor(
@@ -123,9 +210,10 @@ export default async function VendorOrdersPage() {
   return (
     <VendorOrdersClient
       rfqs={authorizedRfqs || []}
-      orders={orders || []}
+      orders={allOrders || []}
       vendorSpecializations={vendorSpec}
       durationMinutes={durationMinutes}
+      currentVendorId={vendorId}
     />
   );
 }

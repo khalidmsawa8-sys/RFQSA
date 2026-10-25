@@ -17,14 +17,27 @@ class CourierRepository {
     return await _apiClient.get<List<DeliveryTaskModel>>(
       ApiEndpoints.courierDeliveries,
       fromJson: (data) {
+        final List<dynamic> list;
         if (data is Map && data['deliveries'] is List) {
-          return (data['deliveries'] as List)
-              .map((e) => DeliveryTaskModel.fromJson(e as Map<String, dynamic>))
-              .toList();
+          list = data['deliveries'] as List;
         } else if (data is List) {
-          return data.map((e) => DeliveryTaskModel.fromJson(e as Map<String, dynamic>)).toList();
+          list = data;
+        } else {
+          return <DeliveryTaskModel>[];
         }
-        return [];
+
+        final results = <DeliveryTaskModel>[];
+        for (final item in list) {
+          if (item is Map) {
+            try {
+              final map = Map<String, dynamic>.from(item);
+              results.add(DeliveryTaskModel.fromJson(map));
+            } catch (_) {
+              // Silently ignore or skip individual malformed task
+            }
+          }
+        }
+        return results;
       },
     );
   }

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
@@ -37,6 +38,11 @@ class NotificationService {
   String? _pendingRoute;
   Map<String, dynamic>? _pendingRouteData;
   bool _isInitialized = false;
+
+  Timer? _pollingTimer;
+  final Set<String> _seenNotificationIds = <String>{};
+  bool _isFirstPollingRun = true;
+  bool _isPollingActive = false;
 
   void configure({required ApiClient apiClient, required SecureStorageService storageService}) {
     _apiClient = apiClient;
@@ -248,6 +254,7 @@ class NotificationService {
 
     // Fetch initial unread count
     fetchUnreadCount();
+    startActivePolling();
   }
 
   /// Check whether runtime notification permission is granted
@@ -349,12 +356,14 @@ class NotificationService {
         );
       }
       fetchUnreadCount();
+      startActivePolling();
     } catch (_) {}
   }
 
   /// Deactivate device token on Logout to prevent cross-user notification leakage
   Future<void> unregisterOnLogout() async {
     try {
+      stopActivePolling();
       final fcmToken = await _storageService?.getFcmToken();
       if (fcmToken != null && _apiClient != null) {
         await _apiClient!.delete(
@@ -363,6 +372,98 @@ class NotificationService {
       }
       unreadCountNotifier.value = 0;
     } catch (_) {}
+  }
+
+  /// Start Foreground/Active 5-Second Real-Time Notification Polling
+  void startActivePolling() {
+    if (_isPollingActive) return;
+    _isPollingActive = true;
+    _pollNotifications();
+    _pollingTimer?.cancel();
+    _pollingTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      _pollNotifications();
+    });
+  }
+
+  /// Stop Polling on logout or sleep
+  void stopActivePolling() {
+    _isPollingActive = false;
+    _pollingTimer?.cancel();
+    _pollingTimer = null;
+  }
+
+  /// Polls the central server for live notifications
+  Future<void> _pollNotifications() async {
+    try {
+      final client = _apiClient ?? ApiClient.instance;
+      final res = await client.get(
+        '/api/v1/notifications?limit=15',
+        fromJson: (data) => data as Map<String, dynamic>,
+      );
+
+      if (res.success && res.data != null) {
+        final list = (res.data!['notifications'] as List<dynamic>?)
+            ?.map((e) => Map<String, dynamic>.from(e as Map))
+            .toList() ?? [];
+        final unread = res.data!['unreadCount'] as int? ?? 0;
+        unreadCountNotifier.value = unread;
+
+        if (_isFirstPollingRun) {
+          for (final n in list) {
+            final id = n['id']?.toString() ?? n['notificationId']?.toString();
+            if (id != null) _seenNotificationIds.add(id);
+          }
+          _isFirstPollingRun = false;
+          return;
+        }
+
+        // Detect new incoming notifications and trigger local chime and system notification
+        for (final n in list.reversed) {
+          final id = n['id']?.toString() ?? n['notificationId']?.toString();
+          if (id != null && !_seenNotificationIds.contains(id)) {
+            _seenNotificationIds.add(id);
+
+            final isRead = n['is_read'] == true || n['isRead'] == true;
+            if (!isRead) {
+              final title = n['title']?.toString() ?? 'إشعار جديد في رفق 🔔';
+              final body = n['message']?.toString() ?? n['body']?.toString() ?? 'لديك تحديث جديد في حسابك';
+              final type = (n['type'] ?? 'general').toString().toLowerCase();
+
+              String channelId = 'orders_channel';
+              String channelName = 'الطلبات وعروض الأسعار';
+
+              if (type == 'new_rfq') {
+                channelId = 'rfq_radar_channel';
+                channelName = 'رادار طلبات التسعير';
+              } else if (type.contains('delivery') || type.contains('courier') || type == 'in_transit' || type == 'arrived' || type == 'delivered') {
+                channelId = 'delivery_channel';
+                channelName = 'الشحن والتوصيل والتتبع';
+              } else if (type == 'wallet_credit' || type == 'invoice' || type == 'payment') {
+                channelId = 'payments_channel';
+                channelName = 'المحفظة والفواتير الضريبية';
+              } else if (type == 'new_message') {
+                channelId = 'messages_channel';
+                channelName = 'الرسائل والمحادثات';
+              }
+
+              showLocalNotification(
+                id: id.hashCode,
+                title: title,
+                body: body,
+                channelId: channelId,
+                channelName: channelName,
+                soundFileName: 'rfq_alert',
+                payload: n,
+              );
+            }
+          }
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Polling notifications warning: $e');
+      }
+    }
   }
 
   /// Fetch Live Unread Count from Backend Database

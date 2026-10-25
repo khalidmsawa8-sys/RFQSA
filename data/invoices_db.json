@@ -5,9 +5,12 @@
     "order_id": "ORD-5501",
     "status": "paid",
     "type": "tax_invoice",
-    "total_amount": 2850,
-    "subtotal": 2478.26,
-    "tax_amount": 371.74,
+    "total_amount": 2850.01,
+    "subtotal": 2354.17,
+    "platform_commission": 117.71,
+    "platform_commission_percent": 5,
+    "tax_amount": 353.13,
+    "vat_percent": 15,
     "issued_at": "2026-08-20T03:00:00.000Z",
     "due_date": "2026-09-03T03:00:00.000Z",
     "paid_at": "2026-08-20T03:15:00.000Z",
@@ -59,17 +62,30 @@
         "part_name": "صدام أمامي أصلي",
         "part_number": "DG9Z-17757-AA",
         "quantity": 1,
-        "unit_price": 1350,
-        "line_total": 1350
+        "unit_price": 1300,
+        "line_total": 1300
       },
       {
         "part_name": "شمعة أمامية يمين Full LED",
         "part_number": "DG9Z-13008-F",
         "quantity": 1,
-        "unit_price": 1128.26,
-        "line_total": 1128.26
+        "unit_price": 1106.08,
+        "line_total": 1106.08
       }
-    ]
+    ],
+    "is_pickup": false,
+    "delivery_method": "delivery",
+    "delivery_type": "delivery",
+    "fulfillment_method": "DELIVERY",
+    "delivery_fee": 25,
+    "delivery_cost": 25,
+    "parts_subtotal": 2354.17,
+    "parts_vat": 353.13,
+    "client_platform_fee": 117.71,
+    "client_platform_fee_percent": 5,
+    "vendor_platform_fee": 353.13,
+    "vendor_platform_fee_percent": 15,
+    "grand_total": 2850.01
   },
   {
     "id": "INV-4920",
@@ -77,9 +93,12 @@
     "order_id": "ORD-4920",
     "status": "paid",
     "type": "tax_invoice",
-    "total_amount": 3400,
-    "subtotal": 2956.52,
-    "tax_amount": 443.48,
+    "total_amount": 3400.01,
+    "subtotal": 2812.5,
+    "platform_commission": 140.63,
+    "platform_commission_percent": 5,
+    "tax_amount": 421.88,
+    "vat_percent": 15,
     "issued_at": "2026-08-19T15:00:00.000Z",
     "due_date": "2026-09-02T15:00:00.000Z",
     "paid_at": "2026-08-19T15:10:00.000Z",
@@ -131,10 +150,23 @@
         "part_name": "مساعدات هيدروليك أمامية وخلفية",
         "part_number": "48510-69435",
         "quantity": 4,
-        "unit_price": 739.13,
-        "line_total": 2956.52
+        "unit_price": 717.6,
+        "line_total": 2870.41
       }
-    ]
+    ],
+    "is_pickup": false,
+    "delivery_method": "delivery",
+    "delivery_type": "delivery",
+    "fulfillment_method": "DELIVERY",
+    "delivery_fee": 25,
+    "delivery_cost": 25,
+    "parts_subtotal": 2812.5,
+    "parts_vat": 421.88,
+    "client_platform_fee": 140.63,
+    "client_platform_fee_percent": 5,
+    "vendor_platform_fee": 421.88,
+    "vendor_platform_fee_percent": 15,
+    "grand_total": 3400.01
   },
   {
     "id": "INV-3105",
@@ -142,9 +174,12 @@
     "order_id": "ORD-3105",
     "status": "paid",
     "type": "tax_invoice",
-    "total_amount": 1650,
-    "subtotal": 1434.78,
-    "tax_amount": 215.22,
+    "total_amount": 1650.01,
+    "subtotal": 1354.17,
+    "platform_commission": 67.71,
+    "platform_commission_percent": 5,
+    "tax_amount": 203.13,
+    "vat_percent": 15,
     "issued_at": "2026-08-18T16:30:00.000Z",
     "due_date": "2026-09-01T16:30:00.000Z",
     "paid_at": "2026-08-18T16:40:00.000Z",
@@ -196,17 +231,30 @@
         "part_name": "صدام أمامي أصلي",
         "part_number": "71101-TVA-A00",
         "quantity": 1,
-        "unit_price": 850,
-        "line_total": 850
+        "unit_price": 820,
+        "line_total": 820
       },
       {
         "part_name": "شمعة إضاءة Full LED يمين",
         "part_number": "33100-TVA-A11",
         "quantity": 1,
-        "unit_price": 584.78,
-        "line_total": 584.78
+        "unit_price": 572.99,
+        "line_total": 572.99
       }
-    ]
+    ],
+    "is_pickup": false,
+    "delivery_method": "delivery",
+    "delivery_type": "delivery",
+    "fulfillment_method": "DELIVERY",
+    "delivery_fee": 25,
+    "delivery_cost": 25,
+    "parts_subtotal": 1354.17,
+    "parts_vat": 203.13,
+    "client_platform_fee": 67.71,
+    "client_platform_fee_percent": 5,
+    "vendor_platform_fee": 203.13,
+    "vendor_platform_fee_percent": 15,
+    "grand_total": 1650.01
   },
   {
     "id": "INV-2041",
@@ -214,9 +262,12 @@
     "order_id": "ORD-2041",
     "status": "cancelled",
     "type": "credit_note",
-    "total_amount": 950,
-    "subtotal": 826.09,
-    "tax_amount": 123.91,
+    "total_amount": 949.99,
+    "subtotal": 770.83,
+    "platform_commission": 38.54,
+    "platform_commission_percent": 5,
+    "tax_amount": 115.62,
+    "vat_percent": 15,
     "issued_at": "2026-08-15T10:00:00.000Z",
     "due_date": "2026-08-29T10:00:00.000Z",
     "client_id": "client-demo-id",
@@ -267,9 +318,22 @@
         "part_name": "مقصات أمامية علوية وسفلية",
         "part_number": "TK48-34-300",
         "quantity": 2,
-        "unit_price": 413.045,
-        "line_total": 826.09
+        "unit_price": 401.015,
+        "line_total": 802.03
       }
-    ]
+    ],
+    "is_pickup": false,
+    "delivery_method": "delivery",
+    "delivery_type": "delivery",
+    "fulfillment_method": "DELIVERY",
+    "delivery_fee": 25,
+    "delivery_cost": 25,
+    "parts_subtotal": 770.83,
+    "parts_vat": 115.62,
+    "client_platform_fee": 38.54,
+    "client_platform_fee_percent": 5,
+    "vendor_platform_fee": 115.62,
+    "vendor_platform_fee_percent": 15,
+    "grand_total": 949.99
   }
 ]

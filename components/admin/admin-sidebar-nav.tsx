@@ -27,7 +27,7 @@ const NAV_ITEMS = [
   { href: "/admin/orders", label: "الطلبات", icon: ShoppingBag },
   { href: "/admin/delivery", label: "أسطول التوصيل", icon: Truck },
   { href: "/admin/invoices", label: "الفواتير", icon: ClipboardList },
-  { href: "/admin/wallet", label: "المحافظ", icon: Wallet },
+  { href: "/admin/wallet", label: "محفظة الأدمن (العمولات)", icon: Wallet },
   { href: "/admin/audit", label: "سجل النشاط", icon: ScrollText },
   { href: "/admin/support", label: "المساعدة", icon: LifeBuoy },
   { href: "/admin/settings", label: "الإعدادات", icon: Settings },

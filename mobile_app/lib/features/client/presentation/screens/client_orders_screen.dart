@@ -143,13 +143,14 @@ class _ClientOrdersScreenState extends State<ClientOrdersScreen> {
             vin: rfq.vin ?? '—',
             partsText: rfq.items.map((e) => e.partName).join(' ، '),
             partsCount: rfq.items.length,
-            deliveryLocation: '${rfq.deliveryCity} — ${rfq.deliveryLocation}',
+            deliveryLocation: rfq.isPickup ? 'استلام من الفرع 🏬' : '${rfq.deliveryCity} — ${rfq.deliveryLocation}',
             quotesCount: 1,
             amount: bestQuote?.totalPrice ?? 402.50,
             status: 'preparing',
             createdAt: rfq.createdAt,
             expiresAt: rfq.expiresAt,
             vendorName: bestQuote?.vendorName ?? 'مؤسسة قطع الغيار المعتمدة',
+            isPickup: rfq.isPickup,
             rawRfq: rfq,
           ));
         }
@@ -167,12 +168,13 @@ class _ClientOrdersScreenState extends State<ClientOrdersScreen> {
         vin: rfq.vin ?? '—',
         partsText: rfq.items.map((e) => e.partName).join(' ، '),
         partsCount: rfq.items.length,
-        deliveryLocation: '${rfq.deliveryCity} — ${rfq.deliveryLocation}',
+        deliveryLocation: rfq.isPickup ? 'استلام من الفرع 🏬' : '${rfq.deliveryCity} — ${rfq.deliveryLocation}',
         quotesCount: rfq.quotesCount,
         amount: null,
         status: status,
         createdAt: rfq.createdAt,
         expiresAt: rfq.expiresAt,
+        isPickup: rfq.isPickup,
         rawRfq: rfq,
       ));
     }
@@ -196,20 +198,16 @@ class _ClientOrdersScreenState extends State<ClientOrdersScreen> {
         }
       } catch (_) {}
 
-      final rawDeliveryFee = o['delivery_fee'];
-      final isBranchPickup = o['is_pickup'] == true ||
-          o['fulfillment_type'] == 'BRANCH_PICKUP' ||
-          o['fulfillment_method'] == 'BRANCH_PICKUP' ||
-          o['fulfillment_method'] == 'pickup' ||
-          o['delivery_method'] == 'pickup' ||
-          o['shipping_method'] == 'pickup' ||
-          (rfq['fulfillment_method'] == 'SELF_PICKUP') ||
-          (rfq['delivery_method'] == 'pickup') ||
-          rawDeliveryFee == 0 ||
-          rawDeliveryFee?.toString() == '0.00' ||
-          (rfq['delivery_location']?.toString().contains('استلام من الفرع') ?? false) ||
-          (rfq['delivery_location']?.toString().contains('فرع') ?? false) ||
-          (rfq['delivery_location']?.toString().contains('استلام') ?? false);
+      final rawFulfillment = (o['fulfillment_method'] ?? o['fulfillment_type'] ?? rfq['fulfillment_method'] ?? o['delivery_method'] ?? rfq['delivery_method'] ?? '').toString().toLowerCase();
+      final isExplicitDelivery = rawFulfillment == 'delivery' ||
+          rawFulfillment == 'courier' ||
+          rawFulfillment == 'shipping' ||
+          o['is_pickup'] == false;
+      final isBranchPickup = !isExplicitDelivery && (
+          o['is_pickup'] == true ||
+          rawFulfillment == 'branch_pickup' ||
+          rawFulfillment == 'pickup' ||
+          rawFulfillment == 'self_pickup');
 
       rows.add(_UnifiedClientItem(
         rawId: rawId,
@@ -1011,6 +1009,9 @@ class _ClientOrdersScreenState extends State<ClientOrdersScreen> {
       'vendor_name': item.vendorName,
       'parts_description': item.partsText,
       'delivery_location': item.deliveryLocation,
+      'is_pickup': item.isPickup,
+      'delivery_method': item.isPickup ? 'pickup' : 'delivery',
+      'fulfillment_method': item.isPickup ? 'SELF_PICKUP' : 'DELIVERY',
       if (item.rawOrder != null) ...item.rawOrder!,
     };
   }

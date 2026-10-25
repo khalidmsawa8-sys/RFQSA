@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:convert';
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:path_provider/path_provider.dart';
@@ -59,8 +60,23 @@ class MediaService {
       if (response.success && response.data != null) {
         final data = response.data;
         if (data is Map<String, dynamic>) {
-          return data['url'] ?? data['pathname'];
+          String? url = data['url']?.toString() ?? data['pathname']?.toString();
+          if (url != null && url.isNotEmpty) {
+            if (url.startsWith('/')) {
+              url = 'https://rfqsa.tech$url';
+            }
+            return url;
+          }
         }
+      }
+    } catch (_) {}
+
+    // Resilient Fallback: encode to base64 Data URL if server upload fails
+    try {
+      if (await file.exists()) {
+        final bytes = await file.readAsBytes();
+        final b64 = base64Encode(bytes);
+        return 'data:image/jpeg;base64,$b64';
       }
     } catch (_) {}
     return null;
